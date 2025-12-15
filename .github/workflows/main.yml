@@ -1,10 +1,9 @@
-# .github/workflows/summarize-ollama.yml
 name: Summarize Code Changes (Ollama)
 
 on:
   push:
     branches: ["**"]
-  workflow_dispatch:   # allows manual runs from Actions tab
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -16,6 +15,7 @@ env:
 jobs:
   summarize:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -39,7 +39,6 @@ jobs:
           echo "branch=${{ github.ref_name }}" >> $GITHUB_OUTPUT
           echo "Diff lines: $LINES"
           if [ "$LINES" -eq "0" ]; then
-            echo "::warning::No changes detected. Exiting."
             echo "NO_DIFF=1" >> $GITHUB_ENV
           fi
 
@@ -59,50 +58,56 @@ jobs:
           python -m pip install --upgrade pip
           pip install unidiff requests
 
-      # Remote Ollama mode
+      # ---------- REMOTE OLLAMA MODE ----------
       - name: Check remote Ollama health
-        if: ${{ secret.OLLAMA_ENDPOINT != '' }}
+        if: ${{ secrets.OLLAMA_ENDPOINT != '' }}
         run: |
-          set -e
-          echo "Checking remote Ollama at ${{ secret.OLLAMA_ENDPOINT }}"
-          curl -fsSL "${{ secret.OLLAMA_ENDPOINT }}/api/tags" -H "Authorization: Bearer ${{ secret.OLLAMA_API_TOKEN }}" || (echo "::error::Ollama endpoint not reachable" && exit 1)
+          echo "Checking remote Ollama at ${{ secrets.OLLAMA_ENDPOINT }}"
+          curl -fsSL "${{ secrets.OLLAMA_ENDPOINT }}/api/tags" \
+            -H "Authorization: Bearer ${{ secrets.OLLAMA_API_TOKEN }}" \
+          || (echo "::error::Ollama endpoint not reachable" && exit 1)
 
       - name: Summarize via REMOTE Ollama
-        if: ${{ secret.OLLAMA_ENDPOINT != '' }}
+        if: ${{ secrets.OLLAMA_ENDPOINT != '' }}
+        env:
+          OLLAMA_ENDPOINT: ${{ secrets.OLLAMA_ENDPOINT }}
+          OLLAMA_MODEL:    ${{ secrets.OLLAMA_MODEL }}
+          OLLAMA_API_TOKEN: ${{ secrets.OLLAMA_API_TOKEN }}
         run: |
+          : "${OLLAMA_MODEL:=llama3.1:8b}"
           python scripts/summarize_diff_ollama.py \
             --patch diff.patch \
             --repo "${{ github.repository }}" \
             --branch "${{ steps.diff.outputs.branch }}" \
             --sha "${{ steps.diff.outputs.sha }}" \
             --out summary.txt
-        env:
-          OLLAMA_ENDPOINT: ${{ secret.OLLAMA_ENDPOINT }}
-          OLLAMA_MODEL: ${{ secret.OLLAMA_MODEL }}
-          OLLAMA_API_TOKEN: ${{ secret.OLLAMA_API_TOKEN }}
 
-      # Local ephemeral Ollama mode
+      # ---------- LOCAL (EPHEMERAL) OLLAMA MODE ----------
       - name: Install & start Ollama (LOCAL)
-        if: ${{ secret.OLLAMA_ENDPOINT == '' }}
+        if: ${{ secrets.OLLAMA_ENDPOINT == '' }}
+        env:
+          OLLAMA_MODEL: ${{ secrets.OLLAMA_MODEL }}
         run: |
-          set -e
+          : "${OLLAMA_MODEL:=llama3.1:8b}"
           curl -fsSL https://ollama.com/install.sh | sh
           (sudo systemctl start ollama 2>/dev/null || (ollama serve & sleep 3))
-          ollama pull "${{ secret.OLLAMA_MODEL || 'qwen2.5-coder:3b-instruct' }}"
-          curl -fsSL "http://localhost:11434/api/tags" || (echo "::error::Local Ollama not responding" && exit 1)
+          ollama pull "${OLLAMA_MODEL}"
+          curl -fsSL "http://localhost:11434/api/tags" \
+          || (echo "::error::Local Ollama not responding" && exit 1)
 
       - name: Summarize via LOCAL Ollama
-        if: ${{ secret.OLLAMA_ENDPOINT == '' }}
+        if: ${{ secrets.OLLAMA_ENDPOINT == '' }}
+        env:
+          OLLAMA_ENDPOINT: "http://localhost:11434"
+          OLLAMA_MODEL:    ${{ secrets.OLLAMA_MODEL }}
         run: |
+          : "${OLLAMA_MODEL:=llama3.1:8b}"
           python scripts/summarize_diff_ollama.py \
             --patch diff.patch \
             --repo "${{ github.repository }}" \
             --branch "${{ steps.diff.outputs.branch }}" \
             --sha "${{ steps.diff.outputs.sha }}" \
             --out summary.txt
-        env:
-          OLLAMA_ENDPOINT: "http://localhost:11434"
-          OLLAMA_MODEL: ${{ secret.OLLAMA_MODEL || 'llama3.1:8b' }}
 
       - name: Verify summary file
         run: |
