@@ -61,14 +61,14 @@ jobs:
 
       # Remote Ollama mode
       - name: Check remote Ollama health
-        if: ${{ secrets.OLLAMA_ENDPOINT != '' }}
+        if: ${{ secret.OLLAMA_ENDPOINT != '' }}
         run: |
           set -e
-          echo "Checking remote Ollama at ${{ secrets.OLLAMA_ENDPOINT }}"
-          curl -fsSL "${{ secrets.OLLAMA_ENDPOINT }}/api/tags" -H "Authorization: Bearer ${{ secrets.OLLAMA_API_TOKEN }}" || (echo "::error::Ollama endpoint not reachable" && exit 1)
+          echo "Checking remote Ollama at ${{ secret.OLLAMA_ENDPOINT }}"
+          curl -fsSL "${{ secret.OLLAMA_ENDPOINT }}/api/tags" -H "Authorization: Bearer ${{ secret.OLLAMA_API_TOKEN }}" || (echo "::error::Ollama endpoint not reachable" && exit 1)
 
       - name: Summarize via REMOTE Ollama
-        if: ${{ secrets.OLLAMA_ENDPOINT != '' }}
+        if: ${{ secret.OLLAMA_ENDPOINT != '' }}
         run: |
           python scripts/summarize_diff_ollama.py \
             --patch diff.patch \
@@ -77,22 +77,22 @@ jobs:
             --sha "${{ steps.diff.outputs.sha }}" \
             --out summary.txt
         env:
-          OLLAMA_ENDPOINT: ${{ secrets.OLLAMA_ENDPOINT }}
-          OLLAMA_MODEL: ${{ secrets.OLLAMA_MODEL }}
-          OLLAMA_API_TOKEN: ${{ secrets.OLLAMA_API_TOKEN }}
+          OLLAMA_ENDPOINT: ${{ secret.OLLAMA_ENDPOINT }}
+          OLLAMA_MODEL: ${{ secret.OLLAMA_MODEL }}
+          OLLAMA_API_TOKEN: ${{ secret.OLLAMA_API_TOKEN }}
 
       # Local ephemeral Ollama mode
       - name: Install & start Ollama (LOCAL)
-        if: ${{ secrets.OLLAMA_ENDPOINT == '' }}
+        if: ${{ secret.OLLAMA_ENDPOINT == '' }}
         run: |
           set -e
           curl -fsSL https://ollama.com/install.sh | sh
           (sudo systemctl start ollama 2>/dev/null || (ollama serve & sleep 3))
-          ollama pull "${{ secrets.OLLAMA_MODEL || 'llama3.1:8b' }}"
+          ollama pull "${{ secret.OLLAMA_MODEL || 'qwen2.5-coder:3b-instruct' }}"
           curl -fsSL "http://localhost:11434/api/tags" || (echo "::error::Local Ollama not responding" && exit 1)
 
       - name: Summarize via LOCAL Ollama
-        if: ${{ secrets.OLLAMA_ENDPOINT == '' }}
+        if: ${{ secret.OLLAMA_ENDPOINT == '' }}
         run: |
           python scripts/summarize_diff_ollama.py \
             --patch diff.patch \
@@ -102,7 +102,7 @@ jobs:
             --out summary.txt
         env:
           OLLAMA_ENDPOINT: "http://localhost:11434"
-          OLLAMA_MODEL: ${{ secrets.OLLAMA_MODEL || 'llama3.1:8b' }}
+          OLLAMA_MODEL: ${{ secret.OLLAMA_MODEL || 'llama3.1:8b' }}
 
       - name: Verify summary file
         run: |
