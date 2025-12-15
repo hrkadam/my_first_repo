@@ -142,5 +142,5 @@ def main():
     print(f"Wrote summary to {args.out}")
 
 if __name__ == "__main__":
-    print("Start of script")
+    print("Start of script....1")
     main()
