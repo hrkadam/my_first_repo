@@ -13,7 +13,7 @@ import requests
 from unidiff import PatchSet
 
 OLLAMA_ENDPOINT = os.getenv("OLLAMA_ENDPOINT", "http://localhost:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5-coder:3b-instruct")
 OLLAMA_API_TOKEN = os.getenv("OLLAMA_API_TOKEN", "")
 
 SKIP_DIRS = {"node_modules", "vendor", "dist", "build", ".venv", ".git"}
@@ -142,4 +142,5 @@ def main():
     print(f"Wrote summary to {args.out}")
 
 if __name__ == "__main__":
+    print("Start of script")
     main()
