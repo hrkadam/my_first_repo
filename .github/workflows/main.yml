@@ -1,0 +1,132 @@
+# .github/workflows/summarize-ollama.yml
+name: Summarize Code Changes (Ollama)
+
+on:
+  push:
+    branches: ["**"]
+  workflow_dispatch:   # allows manual runs from Actions tab
+
+permissions:
+  contents: write
+  pull-requests: write
+
+env:
+  SUMMARY_DIR: ".changes"
+
+jobs:
+  summarize:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Print context
+        run: |
+          echo "Repository: ${{ github.repository }}"
+          echo "Branch:     ${{ github.ref_name }}"
+          echo "Before:     ${{ github.event.before }}"
+          echo "SHA:        ${{ github.sha }}"
+
+      - name: Compute diff
+        id: diff
+        run: |
+          git diff ${{ github.event.before }}..${{ github.sha }} > diff.patch || true
+          LINES=$(wc -l < diff.patch || echo 0)
+          echo "lines=$LINES" >> $GITHUB_OUTPUT
+          echo "sha=${{ github.sha }}" >> $GITHUB_OUTPUT
+          echo "branch=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          echo "Diff lines: $LINES"
+          if [ "$LINES" -eq "0" ]; then
+            echo "::warning::No changes detected. Exiting."
+            echo "NO_DIFF=1" >> $GITHUB_ENV
+          fi
+
+      - name: Bail out if no diff
+        if: env.NO_DIFF == '1'
+        run: |
+          echo "No diff; nothing to summarize."
+          exit 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install unidiff requests
+
+      # Remote Ollama mode
+      - name: Check remote Ollama health
+        if: ${{ secrets.OLLAMA_ENDPOINT != '' }}
+        run: |
+          set -e
+          echo "Checking remote Ollama at ${{ secrets.OLLAMA_ENDPOINT }}"
+          curl -fsSL "${{ secrets.OLLAMA_ENDPOINT }}/api/tags" -H "Authorization: Bearer ${{ secrets.OLLAMA_API_TOKEN }}" || (echo "::error::Ollama endpoint not reachable" && exit 1)
+
+      - name: Summarize via REMOTE Ollama
+        if: ${{ secrets.OLLAMA_ENDPOINT != '' }}
+        run: |
+          python scripts/summarize_diff_ollama.py \
+            --patch diff.patch \
+            --repo "${{ github.repository }}" \
+            --branch "${{ steps.diff.outputs.branch }}" \
+            --sha "${{ steps.diff.outputs.sha }}" \
+            --out summary.txt
+        env:
+          OLLAMA_ENDPOINT: ${{ secrets.OLLAMA_ENDPOINT }}
+          OLLAMA_MODEL: ${{ secrets.OLLAMA_MODEL }}
+          OLLAMA_API_TOKEN: ${{ secrets.OLLAMA_API_TOKEN }}
+
+      # Local ephemeral Ollama mode
+      - name: Install & start Ollama (LOCAL)
+        if: ${{ secrets.OLLAMA_ENDPOINT == '' }}
+        run: |
+          set -e
+          curl -fsSL https://ollama.com/install.sh | sh
+          (sudo systemctl start ollama 2>/dev/null || (ollama serve & sleep 3))
+          ollama pull "${{ secrets.OLLAMA_MODEL || 'llama3.1:8b' }}"
+          curl -fsSL "http://localhost:11434/api/tags" || (echo "::error::Local Ollama not responding" && exit 1)
+
+      - name: Summarize via LOCAL Ollama
+        if: ${{ secrets.OLLAMA_ENDPOINT == '' }}
+        run: |
+          python scripts/summarize_diff_ollama.py \
+            --patch diff.patch \
+            --repo "${{ github.repository }}" \
+            --branch "${{ steps.diff.outputs.branch }}" \
+            --sha "${{ steps.diff.outputs.sha }}" \
+            --out summary.txt
+        env:
+          OLLAMA_ENDPOINT: "http://localhost:11434"
+          OLLAMA_MODEL: ${{ secrets.OLLAMA_MODEL || 'llama3.1:8b' }}
+
+      - name: Verify summary file
+        run: |
+          test -s summary.txt || (echo "::error::summary.txt missing or empty" && exit 1)
+          head -n 20 summary.txt
+
+      - name: Commit summary (direct push)
+        run: |
+          mkdir -p "$SUMMARY_DIR"
+          mv summary.txt "$SUMMARY_DIR/${{ steps.diff.outputs.sha }}.txt"
+          git config --global user.name "summary-bot"
+          git config --global user.email "summary-bot@users.noreply.github.com"
+          git add "$SUMMARY_DIR/${{ steps.diff.outputs.sha }}.txt" || true
+          git commit -m "Add change summary for ${{ steps.diff.outputs.sha }}" || echo "Nothing to commit"
+          git push || echo "::warning::Direct push failed (branch protection?). Consider PR mode."
+
+      - name: Open PR (fallback)
+        if: ${{ failure() }}
+        uses: peter-evans/create-pull-request@v6
+        with:
+          commit-message: "Add change summary for ${{ steps.diff.outputs.sha }}"
+          branch: "summary-bot/${{ steps.diff.outputs.sha }}"
+          title: "Add summary for ${{ steps.diff.outputs.sha }}"
+          body: "Automated summary created by Actions. Approve to merge."
+          add-paths: |
+            ${{ env.SUMMARY_DIR }}/${{ steps.diff.outputs.sha }}.txt
+``
