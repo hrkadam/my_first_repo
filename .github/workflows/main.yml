@@ -129,4 +129,3 @@ jobs:
           body: "Automated summary created by Actions. Approve to merge."
           add-paths: |
             ${{ env.SUMMARY_DIR }}/${{ steps.diff.outputs.sha }}.txt
-``
