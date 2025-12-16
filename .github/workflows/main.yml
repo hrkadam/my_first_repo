@@ -13,13 +13,12 @@ permissions:
 # We'll reference env.* in conditions (if:) instead of secrets.*.
 env:
   SUMMARY_DIR: ".changes"
-  OLLAMA_ENDPOINT: ${{ secrets.OLLAMA_ENDPOINT }}
-  OLLAMA_MODEL:    ${{ secrets.OLLAMA_MODEL }}
-  OLLAMA_API_TOKEN: ${{ secrets.OLLAMA_API_TOKEN }}
+  OLLAMA_ENDPOINT: "http://localhost:11434"
+  OLLAMA_MODEL: "qwen2.5-coder:3b-instruct"  
 
 jobs:
   summarize:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
 
     steps:
       - name: Checkout
@@ -82,7 +81,7 @@ jobs:
           OLLAMA_MODEL:    ${{ env.OLLAMA_MODEL }}
           OLLAMA_API_TOKEN: ${{ env.OLLAMA_API_TOKEN }}
         run: |
-          : "${OLLAMA_MODEL:=llama3.1:8b}"    # default model
+          : "${OLLAMA_MODEL:=qwen2.5-coder:3b-instruct}"    # default model
           python scripts/summarize_diff_ollama.py \
             --patch diff.patch \
             --repo "${{ github.repository }}" \
@@ -96,7 +95,7 @@ jobs:
         env:
           OLLAMA_MODEL: ${{ env.OLLAMA_MODEL }}
         run: |
-          : "${OLLAMA_MODEL:=llama3.1:8b}"
+          : "${OLLAMA_MODEL:=qwen2.5-coder:3b-instruct}"
           curl -fsSL https://ollama.com/install.sh | sh
           (sudo systemctl start ollama 2>/dev/null || (ollama serve & sleep 3))
           ollama pull "${OLLAMA_MODEL}"
@@ -109,7 +108,7 @@ jobs:
           OLLAMA_ENDPOINT: "http://localhost:11434"
           OLLAMA_MODEL:    ${{ env.OLLAMA_MODEL }}
         run: |
-          : "${OLLAMA_MODEL:=llama3.1:8b}"
+          : "${OLLAMA_MODEL:=qwen2.5-coder:3b-instruct}"
           python scripts/summarize_diff_ollama.py \
             --patch diff.patch \
             --repo "${{ github.repository }}" \
