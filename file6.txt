@@ -1,1 +1,2 @@
 hello file 6
+hello new line
