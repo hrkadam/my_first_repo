@@ -13,14 +13,15 @@ env:
   SUMMARY_DIR: ".changes"
   # Local Ollama endpoint on the self-hosted Windows runner
   OLLAMA_ENDPOINT: "http://localhost:11434"
-  # You can override at runtime; a default is set in the step if empty
+  # You can override at runtime; a default is set later if empty
   OLLAMA_MODEL: "qwen2.5-coder:3b-instruct"
 
 jobs:
   summarize:
     # Ensure your self-hosted Windows runner has the "self-hosted" label.
-    # If you also added "windows" label, you can write: runs-on: [self-hosted, windows]
+    # If you also added a "windows" label, you can use: runs-on: [self-hosted, windows]
     runs-on: self-hosted
+
     defaults:
       run:
         shell: pwsh
@@ -57,9 +58,9 @@ jobs:
             $lines = [System.IO.File]::ReadLines("diff.patch").Count
           }
 
-          "lines=$lines"                 | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-          "sha=${{ github.sha }}"        | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-          "branch=${{ github.ref_name }}"| Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "lines=$lines"                  | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "sha=${{ github.sha }}"         | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "branch=${{ github.ref_name }}" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
           Write-Host "Diff lines: $lines"
 
@@ -193,9 +194,11 @@ jobs:
 
       - name: Open PR (fallback)
         if: ${{ failure() }}
+        uses: peter-evans/create-pull-request@v6
         with:
           commit-message: "Add change summary for ${{ steps.diff.outputs.sha }}"
           branch: "summary-bot/${{ steps.diff.outputs.sha }}"
           title: "Add summary for ${{ steps.diff.outputs.sha }}"
           body: "Automated summary created by Actions. Approve to merge."
           add-paths: |
+            ${{ env.SUMMARY_DIR }}/${{ steps.diff.outputs.sha }}.txt
