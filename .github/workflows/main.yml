@@ -78,11 +78,10 @@ jobs:
           exit 0
 
       - name: Verify system Python
+        shell: powershell
         run: |
-          $py = & python --version
-          $pip = & pip --version
-          Write-Host "Python: $py"
-          Write-Host "Pip: $pip"
+          & py -3.10 --version
+          & py -3.10 -m pip --version
             
       #- name: Install dependencies
       #  run: |
