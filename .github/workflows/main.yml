@@ -32,6 +32,35 @@ jobs:
         with:
           fetch-depth: 0
 
+        # --- Make system Python 3.10.4 available to the job ---
+      - name: Patch PATH for system Python 3.10.4
+        id: patch_python
+        run: |
+          $pyHome = 'C:\Users\acc-techvi\AppData\Local\Programs\Python\Python310'          
+          $pyExe  = Join-Path $pyHome 'python.exe'
+          $pyScripts = Join-Path $pyHome 'Scripts'
+
+          
+          if (-not (Test-Path $pyExe)) {
+              Write-Error "python.exe not found at: $pyExe"
+              Write-Error "Install Python 3.10.4 for all users or update the path above."
+              exit 1
+            }
+
+          # Patch PATH for subsequent steps in this job
+          $newPath = "$pyHome;$pyScripts;$env:Path"
+          "PATH=$newPath" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+          # Emit for debugging
+          "python_home=$pyHome" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "python_exe=$pyExe"   | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "Patched PATH with: $pyHome and $pyScripts"
+
+      - name: Verify system Python
+        run: |
+          python --version
+          python -m pip --version
+        
       - name: Print context
         run: |
           # PS5-compatible null/empty handling
@@ -76,13 +105,7 @@ jobs:
         run: |
           Write-Host "No diff; nothing to summarize."
           exit 0
-
-      - name: Verify system Python
-        shell: powershell
-        run: |
-          & py -3.10 --version
-          & py -3.10 -m pip --version
-            
+                 
       #- name: Install dependencies
       #  run: |
       #    python -m pip install --upgrade pip
