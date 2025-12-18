@@ -1,4 +1,4 @@
-name: Summarize Code Changes (Windows, PowerShell)
+name: Summarize Code Changes (Windows, PowerShell, System Python 3.11)
 
 on:
   push:
@@ -32,18 +32,18 @@ jobs:
         with:
           fetch-depth: 0
 
-        # --- Make system Python 3.10.4 available to the job ---
-      - name: Patch PATH for system Python 3.10.4
+        # --- Make system Python 3.11 available to the job ---
+      - name: Patch PATH for system Python 3.11
         id: patch_python
         run: |
-          $pyHome = 'C:\Users\acc-techvi\AppData\Local\Programs\Python\Python310'          
+          $pyHome = 'C:\Python311'          
           $pyExe  = Join-Path $pyHome 'python.exe'
           $pyScripts = Join-Path $pyHome 'Scripts'
 
           
           if (-not (Test-Path $pyExe)) {
               Write-Error "python.exe not found at: $pyExe"
-              Write-Error "Install Python 3.10.4 for all users or update the path above."
+              Write-Error "Install Python 3.11 is installed at C:\Python311."
               exit 1
             }
 
