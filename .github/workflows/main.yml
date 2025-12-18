@@ -34,12 +34,15 @@ jobs:
 
       - name: Print context
         run: |
+          # PS5-compatible null/empty handling
+          $oe = if ([string]::IsNullOrWhiteSpace($env:OLLAMA_ENDPOINT)) { '<empty>' } else { $env:OLLAMA_ENDPOINT }
+          $om = if ([string]::IsNullOrWhiteSpace($env:OLLAMA_MODEL))    { '<empty>' } else { $env:OLLAMA_MODEL }
           Write-Host "Repository: ${{ github.repository }}"
           Write-Host "Branch:     ${{ github.ref_name }}"
           Write-Host "Before:     ${{ github.event.before }}"
           Write-Host "SHA:        ${{ github.sha }}"
-          Write-Host "OLLAMA_ENDPOINT: $($env:OLLAMA_ENDPOINT ?? '<empty>')"
-          Write-Host "OLLAMA_MODEL:    $($env:OLLAMA_MODEL ?? '<empty>')"
+          Write-Host "OLLAMA_ENDPOINT: $oe"
+          Write-Host "OLLAMA_MODEL:    $om"
 
       - name: Compute diff
         id: diff
