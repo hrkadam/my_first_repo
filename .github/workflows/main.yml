@@ -77,10 +77,11 @@ jobs:
           Write-Host "No diff; nothing to summarize."
           exit 0
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
+      - name: Verify Python (system-installed)
+        shell: powershell
+        run: |
+          Write-Host "Using system Python:"
+            python --version
 
       - name: Install dependencies
         run: |
