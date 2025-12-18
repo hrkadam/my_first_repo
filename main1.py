@@ -1,5 +1,4 @@
 import os
 
 print("Hello")
-print("World")
-print("add line")
+v = [1,6,3,9,2,7]
