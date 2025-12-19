@@ -15,6 +15,8 @@ env:
   OLLAMA_ENDPOINT: "http://localhost:11434"
   # You can override at runtime; a default is set later if empty
   OLLAMA_MODEL: "qwen2.5-coder:3b-instruct"
+  # >>> Explicit Ollama install path provided by you (user-profile install) <<<
+  OLLAMA_PATH: 'C:\Users\acc-techvi\AppData\Local\Programs\Ollama\ollama.exe'
 
 jobs:
   summarize:
@@ -111,37 +113,30 @@ jobs:
       #    python -m pip install --upgrade pip
       #    pip install unidiff requests
 
-      - name: Locate and patch PATH for Ollama CLI
+      # --- Use explicit OLLAMA_PATH without probing user profiles ---
+      - name: Patch PATH for Ollama CLI
         shell: powershell
         run: |
-          # Common locations to probe; add/adjust if you know a custom path          
-          $candidates = @(
-                'C:\Users\acc-techvi\AppData\Local\Programs\Ollama\ollama.exe'
-              )
-              
-          $ollamaExe = $null
-              foreach ($p in $candidates) {
-                if (Test-Path $p) { $ollamaExe = $p; break }
-              }
-              
-          if (-not $ollamaExe) {
-                # Try where.exe in case PATH already has it for this service account
-                try {
-                  $where = & where.exe ollama 2>$null
-                  if ($LASTEXITCODE -eq 0 -and $where) {
-                    $ollamaExe = ($where -split "`r?`n")[0]
-                  }
-                } catch {}
-              }
-              
-          if (-not $ollamaExe) {
-                Write-Error "ollama.exe not found. Install Ollama system-wide (e.g., C:\Program Files\Ollama), or provide the absolute path."
-                exit 1
-              }
-                
-          $ollamaDir = Split-Path $ollamaExe
-          "OLLAMA_PATH=$ollamaExe" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          try {
+          if (-not (Test-Path -LiteralPath $env:OLLAMA_PATH)) {            
+              Write-Error "OLLAMA_PATH not found or inaccessible: $($env:OLLAMA_PATH)"
+              Write-Error "If this is a per-user install, the runner service account may not have access."
+              Write-Error "Fix by either: (1) installing Ollama system-wide (e.g., C:\Program Files\Ollama), or (2) running the GitHub Runner service under the same user."
+              exit 1
+            }
+          } catch {
+            if ($_.Exception -is [System.UnauthorizedAccessException]) {              
+              Write-Error "Access denied to OLLAMA_PATH: $($env:OLLAMA_PATH)."
+              Write-Error "Install Ollama system-wide or change the service account to the same user who installed Ollama."
+              exit 1
+            }
+            throw
+          }
+
+          $ollamaDir = Split-Path $env:OLLAMA_PATH
           "PATH=$ollamaDir;$env:Path" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "Using Ollama at: $($env:OLLAMA_PATH)"
+          
       
       - name: Ensure local Ollama is running (service or background)
         shell: powershell
@@ -150,7 +145,7 @@ jobs:
           OLLAMA_MODEL: ${{ env.OLLAMA_MODEL }}
           OLLAMA_PATH: ${{ env.OLLAMA_PATH }}
         run: |
-          # Prefer a Windows Service if present; else fall back to background 'ollama serve'
+          # Prefer a Windows Service named 'Ollama' if present
           $svc = Get-Service -Name "Ollama" -ErrorAction SilentlyContinue
           if ($null -ne $svc) {
             if ($svc.Status -ne 'Running') {
@@ -158,13 +153,15 @@ jobs:
               Start-Service -Name "Ollama"
             }
           } else {
-            #  Fallback: start ollama serve via discovered CLI
-            if (-not $env:OLLAMA_PATH)) {
-              Write-Error "OLLAMA_PATH not set and service not found. Install Ollama or patch PATH."
-              exit 1
-            }
+            #  Fallback: start ollama serve using explicit path
             Write-Host "Starting 'ollama serve' in background from $env:OLLAMA_PATH ..."
-            Start-Process -FilePath "ollama" -ArgumentList "serve" -WindowStyle Hidden | Out-Null
+            try {
+              Start-Process -FilePath $env:OLLAMA_PATH -ArgumentList "serve" -WindowStyle Hidden | Out-Null
+            } catch {              
+              Write-Error "Failed to start Ollama from $env:OLLAMA_PATH. $_"
+              Write-Error "If this is a user-profile install, grant access or install system-wide."
+              exit 1
+            }              
             Start-Sleep -Seconds 3
           }
 
