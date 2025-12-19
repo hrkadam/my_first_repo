@@ -111,12 +111,46 @@ jobs:
       #    python -m pip install --upgrade pip
       #    pip install unidiff requests
 
+      - name: Locate and patch PATH for Ollama CLI
+        shell: powershell
+        run: |
+          # Common locations to probe; add/adjust if you know a custom path          
+          $candidates = @(
+                'C:\Users\acc-techvi\AppData\Local\Programs\Ollama\ollama.exe'
+              )
+              
+          $ollamaExe = $null
+              foreach ($p in $candidates) {
+                if (Test-Path $p) { $ollamaExe = $p; break }
+              }
+              
+          if (-not $ollamaExe) {
+                # Try where.exe in case PATH already has it for this service account
+                try {
+                  $where = & where.exe ollama 2>$null
+                  if ($LASTEXITCODE        if ($LASTEXITCODE -eq 0 -and $where) {
+                    $ollamaExe = ($where -split "`r?`n")[0]
+                  }
+                } catch {}
+              }
+              
+          if (-not $ollamaExe) {
+                Write-Error "ollama.exe not found. Install Ollama system-wide (e.g., C:\Program Files\Ollama), or provide the absolute path."
+                exit 1
+              }
+                
+          $ollamaDir = Split-Path $ollamaExe
+          "OLLAMA_PATH=$ollamaExe" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "PATH=$ollamaDir;$env:Path" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      
       - name: Ensure local Ollama is running (service or background)
+        shell: powershell
         env:
           OLLAMA_ENDPOINT: ${{ env.OLLAMA_ENDPOINT }}
           OLLAMA_MODEL: ${{ env.OLLAMA_MODEL }}
+          OLLAMA_PATH: ${{ env.OLLAMA_PATH }}
         run: |
-          # Prefer a Windows Service named 'Ollama' if present; else fall back to background 'ollama serve'
+          # Prefer a Windows Service if present; else fall back to background 'ollama serve'
           $svc = Get-Service -Name "Ollama" -ErrorAction SilentlyContinue
           if ($null -ne $svc) {
             if ($svc.Status -ne 'Running') {
@@ -124,12 +158,12 @@ jobs:
               Start-Service -Name "Ollama"
             }
           } else {
-            # No service: use ollama CLI in PATH
-            if (-not (Get-Command ollama -ErrorAction SilentlyContinue)) {
-              Write-Error "Ollama CLI not found in PATH. Install/configure Ollama on this runner or register its service."
+            #  Fallback: start ollama serve via discovered CLI
+            if (-not $env:OLLAMA_PATH)) {
+              Write-Error "OLLAMA_PATH not set and service not found. Install Ollama or patch PATH."
               exit 1
             }
-            Write-Host "Starting 'ollama serve' in background..."
+            Write-Host "Starting 'ollama serve' in background from $env:OLLAMA_PATH ..."
             Start-Process -FilePath "ollama" -ArgumentList "serve" -WindowStyle Hidden | Out-Null
             Start-Sleep -Seconds 3
           }
@@ -148,7 +182,7 @@ jobs:
           }
           if ($null -eq $tags -or -not ($tags.models.name -contains $env:OLLAMA_MODEL)) {
             Write-Host "Pulling model $env:OLLAMA_MODEL ..."
-            ollama pull $env:OLLAMA_MODEL
+            & $env:OLLAMA_PATH pull $env:OLLAMA_MODEL
           }
 
           # Health poll: wait until API is responsive
