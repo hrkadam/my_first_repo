@@ -128,7 +128,7 @@ jobs:
                 # Try where.exe in case PATH already has it for this service account
                 try {
                   $where = & where.exe ollama 2>$null
-                  if ($LASTEXITCODE        if ($LASTEXITCODE -eq 0 -and $where) {
+                  if ($LASTEXITCODE -eq 0 -and $where) {
                     $ollamaExe = ($where -split "`r?`n")[0]
                   }
                 } catch {}
