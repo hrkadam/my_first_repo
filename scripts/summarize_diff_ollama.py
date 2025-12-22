@@ -86,7 +86,8 @@ def main():
 
     # Load patch
     with open(args.patch, "r", encoding="utf-8", errors="ignore") as f:
-        patch = PatchSet(f, encoding="utf-8")
+        patch = PatchSet(f)
+        #patch = PatchSet(f, encoding="utf-8")
 
     per_file = []
     for pf in patch:
