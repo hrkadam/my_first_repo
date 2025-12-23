@@ -12,7 +12,7 @@ permissions:
 env:
   SUMMARY_DIR: ".changes"
   # Local Ollama endpoint on the self-hosted Windows runner
-  OLLAMA_ENDPOINT: "http://localhost:11434"
+  OLLAMA_ENDPOINT: "http://127.0.0.1:11434"
   # You can override at runtime; a default is set later if empty
   OLLAMA_MODEL: "qwen2.5-coder:3b-instruct"
   OLLAMA_TIMEOUT_PER_FILE: "120"
@@ -204,6 +204,10 @@ jobs:
         env:
           OLLAMA_ENDPOINT: ${{ env.OLLAMA_ENDPOINT }}
           OLLAMA_MODEL: ${{ env.OLLAMA_MODEL }}
+          OLLAMA_TIMEOUT_PER_FILE: ${{ env.OLLAMA_TIMEOUT_PER_FILE }}
+          OLLAMA_TIMEOUT_OVERALL: ${{ env.OLLAMA_TIMEOUT_OVERALL }}
+          NO_PROXY: "localhost,127.0.0.1"
+          no_proxy: "localhost,127.0.0.1"
         run: |
           if ([string]::IsNullOrWhiteSpace($env:OLLAMA_MODEL)) {
             $env:OLLAMA_MODEL = "qwen2.5-coder:3b-instruct"
