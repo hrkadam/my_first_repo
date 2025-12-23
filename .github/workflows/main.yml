@@ -206,8 +206,7 @@ jobs:
           OLLAMA_MODEL: ${{ env.OLLAMA_MODEL }}
           OLLAMA_TIMEOUT_PER_FILE: ${{ env.OLLAMA_TIMEOUT_PER_FILE }}
           OLLAMA_TIMEOUT_OVERALL: ${{ env.OLLAMA_TIMEOUT_OVERALL }}
-          NO_PROXY: "localhost,127.0.0.1"
-          no_proxy: "localhost,127.0.0.1"
+          NO_PROXY: "localhost,127.0.0.1"          
         run: |
           if ([string]::IsNullOrWhiteSpace($env:OLLAMA_MODEL)) {
             $env:OLLAMA_MODEL = "qwen2.5-coder:3b-instruct"
