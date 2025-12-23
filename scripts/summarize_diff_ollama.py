@@ -19,7 +19,9 @@ OLLAMA_API_TOKEN = os.getenv("OLLAMA_API_TOKEN", "")
 SKIP_DIRS = {"node_modules", "vendor", "dist", "build", ".venv", ".git"}
 MAX_LINES_PER_FILE = 1200      # safety cap per file
 MAX_HUNKS_PER_FILE = 50        # safety cap
-TIMEOUT = 120                  # seconds
+#TIMEOUT = 120                  # seconds
+TIMEOUT_PER_FILE = int(os.getenv("OLLAMA_TIMEOUT_PER_FILE", "120"))
+TIMEOUT_OVERALL  = int(os.getenv("OLLAMA_TIMEOUT_OVERALL",  "600"))
 
 def _headers():
     h = {"Content-Type": "application/json"}
@@ -36,10 +38,10 @@ def trim_patch_text(text: str, max_lines=800):
         # avoid unchanged context lines
     return "\n".join(lines[:max_lines])
 
-def ollama_chat(messages: List[dict]) -> str:
+def ollama_chat(messages: List[dict], timeout: int) -> str:
     url = f"{OLLAMA_ENDPOINT}/api/chat"
     payload = {"model": OLLAMA_MODEL, "messages": messages, "stream": False}
-    r = requests.post(url, json=payload, headers=_headers(), timeout=TIMEOUT)
+    r = requests.post(url, json=payload, headers=_headers(), timeout=timeout)
     r.raise_for_status()
     data = r.json()
     return data.get("message", {}).get("content", "").strip()
@@ -57,7 +59,7 @@ def summarize_file(fname: str, minimal_patch: str) -> str:
     return ollama_chat([
         {"role": "system", "content": system},
         {"role": "user", "content": user}
-    ])
+    ], timeout=TIMEOUT_PER_FILE)
 
 def synthesize_overall(repo: str, branch: str, sha: str, per_file_sections: List[Tuple[str, str]]) -> str:
     system = textwrap.dedent("""
@@ -73,7 +75,7 @@ def synthesize_overall(repo: str, branch: str, sha: str, per_file_sections: List
     return ollama_chat([
         {"role": "system", "content": system},
         {"role": "user", "content": user}
-    ])
+    ], timeout=TIMEOUT_OVERALL)
 
 def main():
     ap = argparse.ArgumentParser()
