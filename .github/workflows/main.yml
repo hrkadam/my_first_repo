@@ -15,6 +15,9 @@ env:
   OLLAMA_ENDPOINT: "http://localhost:11434"
   # You can override at runtime; a default is set later if empty
   OLLAMA_MODEL: "qwen2.5-coder:3b-instruct"
+  OLLAMA_TIMEOUT_PER_FILE: "120"
+  OLLAMA_TIMEOUT_OVERALL: "600"
+  OVERALL_BATCH_SIZE: "20"
   # >>> Explicit Ollama install path provided by you (user-profile install) <<<
   OLLAMA_PATH: 'C:\Users\acc-techvi\AppData\Local\Programs\Ollama\ollama.exe'
 
