@@ -1,0 +1,20 @@
+Repository: hrkadam/my_first_repo
+Branch:     main
+Commit:     dd19945f1f9053519bb7e0de38db07b5a422d64a
+
+### Overall Summary
+**Commit Summary:**
+
+- **Overall intent & scope:** Update README.md to include new features and improvements for the HR management system.
+  
+- **File name:** README.md
+  
+- **Code changes:** Added detailed documentation on new functionalities, updated installation instructions, and improved examples. Updated contact information for support.
+
+- **Modules/services impacted:** Main application logic (HR module).
+
+- **Risk & rollout notes:** Minimal risk involved as changes are straightforward and well-tested locally. Rollout to development environment first before wider deployment.
+
+- **Follow-ups:** No immediate follow-ups required. Tests should be conducted in the development environment after rollout for thorough verification.
+
+### File-by-File
