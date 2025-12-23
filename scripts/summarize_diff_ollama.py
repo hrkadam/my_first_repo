@@ -50,6 +50,8 @@ def summarize_file(fname: str, minimal_patch: str) -> str:
     system = textwrap.dedent("""
     You are a senior code reviewer. Given a code diff for ONE file, produce:
     - Intent & high-level change
+    - file name
+    - code changes    
     - Key modifications (APIs, logic, config)
     - Risks (breaking changes, security, perf)
     - Tests & docs impact
@@ -65,6 +67,8 @@ def synthesize_overall(repo: str, branch: str, sha: str, per_file_sections: List
     system = textwrap.dedent("""
     You are an engineering lead. Given multiple per-file summaries, produce an overall commit summary:
     - Overall intent & scope
+    - file name
+    - code changes
     - Modules/services impacted
     - Risk & rollout notes
     - Follow-ups (tests, docs, ops)
