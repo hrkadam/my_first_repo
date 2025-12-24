@@ -1,0 +1,17 @@
+Repository: hrkadam/my_first_repo
+Branch:     main
+Commit:     68f57ae31ba73e81964a4cdef65e9bd3f251c2af
+
+Overall
+### Commit Summary
+
+- **Overall Intent & Scope**: Merged pull request #5 to update user profile and add new functionalities for employee management.
+- **File Name Changes**:
+  - `user_profile.py`: Added `update_email` method, removed deprecated code.
+  - `employee_management.py`: Updated the `add_employee` function to handle multiple departments.
+- **Code Changes**:
+  - Added a new method in `user_profile.py` called `update_email`, which takes an email address as input and updates the user's email profile in the database.
+  - Removed the `email_notification` method from `user_profile.py` as it is no longer needed.
+  - Updated the `add_employee` function in `employee_management.py` to accept a list of departments and create multiple employees with those departments assigned.
+
+Changes
