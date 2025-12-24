@@ -19,7 +19,7 @@ env:
   OLLAMA_TIMEOUT_OVERALL: "600"
   OVERALL_BATCH_SIZE: "20"
   # >>> Explicit Ollama install path provided by you (user-profile install) <<<
-  OLLAMA_PATH: 'C:\Users\acc-techvi\AppData\Local\Programs\Ollama\ollama.exe'
+  OLLAMA_PATH: 'C:\\Users\\acc-techvi\\AppData\\Local\\Programs\\Ollama\\ollama.exe'
 
 jobs:
   summarize:
@@ -33,18 +33,18 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          clean: true  # <-- ensure no stale files/scripts
+          clean: true
 
       # --- Make system Python 3.11 available to the job ---
       - name: Patch PATH for system Python 3.11
         id: patch_python
         run: |
-          $pyHome = 'C:\Python311'
+          $pyHome = 'C:\\Python311'
           $pyExe = Join-Path $pyHome 'python.exe'
           $pyScripts = Join-Path $pyHome 'Scripts'
           if (-not (Test-Path $pyExe)) {
             Write-Error "python.exe not found at: $pyExe"
-            Write-Error "Install Python 3.11 at C:\Python311."
+            Write-Error "Install Python 3.11 at C:\\Python311."
             exit 1
           }
           # Patch PATH for subsequent steps in this job
@@ -63,7 +63,7 @@ jobs:
       - name: Print context
         run: |
           $oe = if ([string]::IsNullOrWhiteSpace($env:OLLAMA_ENDPOINT)) { '<empty>' } else { $env:OLLAMA_ENDPOINT }
-          $om = if ([string]::IsNullOrWhiteSpace($env:OLLAMA_MODEL)) { '<empty>' } else { $env:OLLAMA_MODEL }
+          $om = if ([string]::IsNullOrWhiteSpace($env:OLLAMA_MODEL))   { '<empty>' } else { $env:OLLAMA_MODEL }
           Write-Host "Repository: ${{ github.repository }}"
           Write-Host "Branch: ${{ github.ref_name }}"
           Write-Host "Before: ${{ github.event.before }}"
@@ -71,7 +71,7 @@ jobs:
           Write-Host "OLLAMA_ENDPOINT: $oe"
           Write-Host "OLLAMA_MODEL: $om"
 
-      # --- Build a real diff file ---
+      # --- Build a real diff file (exact commit) ---
       - name: Compute diff (exact commit)
         id: diff
         run: |
@@ -80,12 +80,20 @@ jobs:
           # Exactly the pushed commit:
           git diff --unified=3 --no-color "${{ github.sha }}^!" > diff.patch
 
-          $lines = (Test-Path diff.patch) ? [System.IO.File]::ReadLines("diff.patch").Count : 0
-          "lines=$lines"       | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-          "sha=${{ github.sha }}"      | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          if (Test-Path 'diff.patch') {
+            $lines = [System.IO.File]::ReadLines('diff.patch').Count
+          } else {
+            $lines = 0
+          }
+
+          "lines=$lines"                  | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "sha=${{ github.sha }}"         | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "branch=${{ github.ref_name }}" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           Write-Host "Diff lines: $lines"
-          if ($lines -eq 0) { "NO_DIFF=1" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8 }
+
+          if ($lines -eq 0) {
+            "NO_DIFF=1" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          }
 
       - name: Bail out if no diff
         if: ${{ env.NO_DIFF == '1' }}
@@ -106,7 +114,7 @@ jobs:
             if (-not (Test-Path -LiteralPath $env:OLLAMA_PATH)) {
               Write-Error "OLLAMA_PATH not found or inaccessible: $($env:OLLAMA_PATH)"
               Write-Error "If this is a per-user install, the runner service account may not have access."
-              Write-Error "Fix by either: (1) installing Ollama system-wide (e.g., C:\Program Files\Ollama), or (2) running the GitHub Runner service under the same user."
+              Write-Error "Fix by either: (1) installing Ollama system-wide (e.g., C:\\Program Files\\Ollama), or (2) running the GitHub Runner service under the same user."
               exit 1
             }
           } catch {
@@ -190,7 +198,6 @@ jobs:
             $env:OLLAMA_MODEL = "qwen2.5-coder:3b-instruct"
           }
           Write-Host "Using model: $env:OLLAMA_MODEL"
-          # Use the script
           python scripts/summarize_diff_ollama.py `
             --patch diff.patch `
             --repo "${{ github.repository }}" `
