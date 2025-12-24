@@ -11,14 +11,11 @@ permissions:
 
 env:
   SUMMARY_DIR: ".changes"
-  # Local Ollama endpoint on the self-hosted Windows runner
   OLLAMA_ENDPOINT: "http://127.0.0.1:11434"
-  # You can override at runtime; a default is set later if empty
   OLLAMA_MODEL: "qwen2.5-coder:3b-instruct"
   OLLAMA_TIMEOUT_PER_FILE: "120"
   OLLAMA_TIMEOUT_OVERALL: "600"
   OVERALL_BATCH_SIZE: "20"
-  # >>> Explicit Ollama install path provided by you (user-profile install) <<<
   OLLAMA_PATH: 'C:\\Users\\acc-techvi\\AppData\\Local\\Programs\\Ollama\\ollama.exe'
 
 jobs:
@@ -35,7 +32,6 @@ jobs:
           fetch-depth: 0
           clean: true
 
-      # --- Make system Python 3.11 available to the job ---
       - name: Patch PATH for system Python 3.11
         id: patch_python
         run: |
@@ -47,10 +43,8 @@ jobs:
             Write-Error "Install Python 3.11 at C:\\Python311."
             exit 1
           }
-          # Patch PATH for subsequent steps in this job
           $newPath = "$pyHome;$pyScripts;$env:Path"
           "PATH=$newPath" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          # Emit for debugging
           "python_home=$pyHome" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "python_exe=$pyExe" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           Write-Host "Patched PATH with: $pyHome and $pyScripts"
@@ -71,14 +65,24 @@ jobs:
           Write-Host "OLLAMA_ENDPOINT: $oe"
           Write-Host "OLLAMA_MODEL: $om"
 
-      # --- Build a real diff file (exact commit) ---
-      - name: Compute diff (exact commit)
+      - name: Compute diff (exact commit with fallbacks)
         id: diff
         run: |
           git config --global core.autocrlf false
           git fetch --no-tags --prune --depth=2 origin +refs/heads/*:refs/remotes/origin/*
-          # Exactly the pushed commit:
+
+          # Primary: exactly the pushed commit
           git diff --unified=3 --no-color "${{ github.sha }}^!" > diff.patch
+
+          if (-not (Test-Path 'diff.patch') -or ([System.IO.File]::ReadLines('diff.patch').Count -eq 0)) {
+            # Fallback: range from before to sha
+            git diff --unified=3 --no-color "${{ github.event.before }}..${{ github.sha }}" > diff.patch
+          }
+
+          if (-not (Test-Path 'diff.patch') -or ([System.IO.File]::ReadLines('diff.patch').Count -eq 0)) {
+            # Fallback: show this commit's changes only
+            git show --format= --unified=3 --no-color "${{ github.sha }}" > diff.patch
+          }
 
           if (Test-Path 'diff.patch') {
             $lines = [System.IO.File]::ReadLines('diff.patch').Count
@@ -95,6 +99,12 @@ jobs:
             "NO_DIFF=1" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           }
 
+      - name: Inspect patch head (TEMP)
+        if: ${{ env.NO_DIFF != '1' }}
+        run: |
+          Write-Host "Patch head (first 60 lines):"
+          Get-Content diff.patch -TotalCount 60 | ForEach-Object { Write-Host $_ }
+
       - name: Bail out if no diff
         if: ${{ env.NO_DIFF == '1' }}
         run: |
@@ -106,7 +116,6 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install unidiff
 
-      # --- Use explicit OLLAMA_PATH without probing user profiles ---
       - name: Patch PATH for Ollama CLI
         shell: powershell
         run: |
@@ -136,7 +145,6 @@ jobs:
           OLLAMA_MODEL: ${{ env.OLLAMA_MODEL }}
           OLLAMA_PATH: ${{ env.OLLAMA_PATH }}
         run: |
-          # Prefer a Windows Service named 'Ollama' if present
           $svc = Get-Service -Name "Ollama" -ErrorAction SilentlyContinue
           if ($null -ne $svc) {
             if ($svc.Status -ne 'Running') {
@@ -144,22 +152,18 @@ jobs:
               Start-Service -Name "Ollama"
             }
           } else {
-            # Fallback: start ollama serve using explicit path
             Write-Host "Starting 'ollama serve' in background from $env:OLLAMA_PATH ..."
             try {
               Start-Process -FilePath $env:OLLAMA_PATH -ArgumentList "serve" -WindowStyle Hidden | Out-Null
             } catch {
               Write-Error "Failed to start Ollama from $env:OLLAMA_PATH. $_"
-              Write-Error "If this is a user-profile install, grant access or install system-wide."
               exit 1
             }
             Start-Sleep -Seconds 3
           }
-          # Default model if not set
           if ([string]::IsNullOrWhiteSpace($env:OLLAMA_MODEL)) {
             $env:OLLAMA_MODEL = "qwen2.5-coder:3b-instruct"
           }
-          # Try to detect if the model is present; pull if missing
           try {
             $resp = Invoke-WebRequest -Uri "$($env:OLLAMA_ENDPOINT)/api/tags" -UseBasicParsing -TimeoutSec 10
             $tags = $resp.Content | ConvertFrom-Json
@@ -170,7 +174,6 @@ jobs:
             Write-Host "Pulling model $env:OLLAMA_MODEL ..."
             & $env:OLLAMA_PATH pull $env:OLLAMA_MODEL
           }
-          # Health poll: wait until API is responsive
           $maxAttempts = 30
           $ok = $false
           for ($i = 1; $i -le $maxAttempts; $i++) {
@@ -185,7 +188,6 @@ jobs:
             exit 1
           }
 
-      # --- RUN THE SIMPLIFIED SCRIPT ---
       - name: Summarize via LOCAL Ollama
         env:
           OLLAMA_ENDPOINT: ${{ env.OLLAMA_ENDPOINT }}
@@ -211,7 +213,6 @@ jobs:
             Write-Error "summary.txt missing or empty"
             exit 1
           }
-          # Show first 20 lines (head -n 20)
           Get-Content summary.txt -TotalCount 20 | ForEach-Object { Write-Host $_ }
 
       - name: Commit summary (direct push)
