@@ -12,7 +12,7 @@ permissions:
 env:
   SUMMARY_DIR: ".changes"
   OLLAMA_ENDPOINT: "http://127.0.0.1:11434"
-  OLLAMA_MODEL: "qwen2.5-coder:3b-instruct"
+  OLLAMA_MODEL: "qwen2.5-coder:7b"
   OLLAMA_TIMEOUT_PER_FILE: "120"
   OLLAMA_TIMEOUT_OVERALL: "600"
   OVERALL_BATCH_SIZE: "20"
@@ -162,7 +162,7 @@ jobs:
             Start-Sleep -Seconds 3
           }
           if ([string]::IsNullOrWhiteSpace($env:OLLAMA_MODEL)) {
-            $env:OLLAMA_MODEL = "qwen2.5-coder:3b-instruct"
+            $env:OLLAMA_MODEL = "qwen2.5-coder:7b"
           }
           try {
             $resp = Invoke-WebRequest -Uri "$($env:OLLAMA_ENDPOINT)/api/tags" -UseBasicParsing -TimeoutSec 10
@@ -197,7 +197,7 @@ jobs:
           NO_PROXY: "localhost,127.0.0.1"
         run: |
           if ([string]::IsNullOrWhiteSpace($env:OLLAMA_MODEL)) {
-            $env:OLLAMA_MODEL = "qwen2.5-coder:3b-instruct"
+            $env:OLLAMA_MODEL = "qwen2.5-coder:7b"
           }
           Write-Host "Using model: $env:OLLAMA_MODEL"
           python scripts/summarize_diff_ollama.py `
