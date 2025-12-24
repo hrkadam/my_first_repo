@@ -136,12 +136,14 @@ def main():
     report.append(f"Branch:     {args.branch}")
     report.append(f"Commit:     {args.sha}")
     report.append("")
-    report.append("### Overall Summary")
+    report.append("Overall")
     report.append(overall)
     report.append("")
-    report.append("### File-by-File")
+    report.append("Changes")
     for f, s in per_file:
-        report.append(f"- {f}\n{s}\n")
+        # Use only the first line of the model output to keep it simple
+        first_line = (s or "").splitlines()[0] if s else ""
+        report.append(f"- {f}: {first_line}")
 
     with open(args.out, "w", encoding="utf-8") as f:
         f.write("\n".join(report).strip() + "\n")
