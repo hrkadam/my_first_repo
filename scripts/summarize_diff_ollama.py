@@ -52,9 +52,6 @@ def summarize_file(fname: str, minimal_patch: str) -> str:
     - Intent & high-level change
     - file name
     - code changes    
-    - Key modifications (APIs, logic, config)
-    - Risks (breaking changes, security, perf)
-    - Tests & docs impact
     Keep it concise (<= 12 lines). Avoid reprinting the patch.
     """)
     user = f"FILE: {fname}\nPATCH:\n{trim_patch_text(minimal_patch)}"
@@ -69,9 +66,6 @@ def synthesize_overall(repo: str, branch: str, sha: str, per_file_sections: List
     - Overall intent & scope
     - file name
     - code changes
-    - Modules/services impacted
-    - Risk & rollout notes
-    - Follow-ups (tests, docs, ops)
     Keep it scannable; use bullets.
     """)
     user = f"Repository: {repo}\nBranch: {branch}\nCommit: {sha}\n\n" + \
