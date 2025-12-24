@@ -23,10 +23,7 @@ env:
 
 jobs:
   summarize:
-    # Ensure your self-hosted Windows runner has the "self-hosted" label.
-    # If you also added a "windows" label, you can use: runs-on: [self-hosted, windows]
     runs-on: self-hosted
-
     defaults:
       run:
         shell: powershell
@@ -36,111 +33,94 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          clean: true  # <-- ensure no stale files/scripts
 
-        # --- Make system Python 3.11 available to the job ---
+      # --- Make system Python 3.11 available to the job ---
       - name: Patch PATH for system Python 3.11
         id: patch_python
         run: |
-          $pyHome = 'C:\Python311'          
-          $pyExe  = Join-Path $pyHome 'python.exe'
+          $pyHome = 'C:\Python311'
+          $pyExe = Join-Path $pyHome 'python.exe'
           $pyScripts = Join-Path $pyHome 'Scripts'
-
-          
           if (-not (Test-Path $pyExe)) {
-              Write-Error "python.exe not found at: $pyExe"
-              Write-Error "Install Python 3.11 is installed at C:\Python311."
-              exit 1
-            }
-
+            Write-Error "python.exe not found at: $pyExe"
+            Write-Error "Install Python 3.11 at C:\Python311."
+            exit 1
+          }
           # Patch PATH for subsequent steps in this job
           $newPath = "$pyHome;$pyScripts;$env:Path"
           "PATH=$newPath" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-
           # Emit for debugging
           "python_home=$pyHome" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-          "python_exe=$pyExe"   | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "python_exe=$pyExe" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           Write-Host "Patched PATH with: $pyHome and $pyScripts"
 
       - name: Verify system Python
         run: |
           python --version
           python -m pip --version
-        
+
       - name: Print context
         run: |
-          # PS5-compatible null/empty handling
           $oe = if ([string]::IsNullOrWhiteSpace($env:OLLAMA_ENDPOINT)) { '<empty>' } else { $env:OLLAMA_ENDPOINT }
-          $om = if ([string]::IsNullOrWhiteSpace($env:OLLAMA_MODEL))    { '<empty>' } else { $env:OLLAMA_MODEL }
+          $om = if ([string]::IsNullOrWhiteSpace($env:OLLAMA_MODEL)) { '<empty>' } else { $env:OLLAMA_MODEL }
           Write-Host "Repository: ${{ github.repository }}"
-          Write-Host "Branch:     ${{ github.ref_name }}"
-          Write-Host "Before:     ${{ github.event.before }}"
-          Write-Host "SHA:        ${{ github.sha }}"
+          Write-Host "Branch: ${{ github.ref_name }}"
+          Write-Host "Before: ${{ github.event.before }}"
+          Write-Host "SHA: ${{ github.sha }}"
           Write-Host "OLLAMA_ENDPOINT: $oe"
-          Write-Host "OLLAMA_MODEL:    $om"
+          Write-Host "OLLAMA_MODEL: $om"
 
-      - name: Compute diff
+      # --- Build a real diff file ---
+      - name: Compute diff (exact commit)
         id: diff
         run: |
-          # Create diff.patch without failing the step if git diff errors/no changes
-          try {
-            git diff "${{ github.event.before }}..${{ github.sha }}" |
-              Set-Content -Path diff.patch -NoNewline -ErrorAction Stop
-          } catch {
-            New-Item -ItemType File -Path diff.patch -Force | Out-Null
-          }
+          git config --global core.autocrlf false
+          git fetch --no-tags --prune --depth=2 origin +refs/heads/*:refs/remotes/origin/*
+          # Exactly the pushed commit:
+          git diff --unified=3 --no-color "${{ github.sha }}^!" > diff.patch
 
-          # Fast line count (wc -l equivalent)
-          $lines = 0
-          if (Test-Path diff.patch) {
-            $lines = [System.IO.File]::ReadLines("diff.patch").Count
-          }
-
-          "lines=$lines"                  | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-          "sha=${{ github.sha }}"         | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          $lines = (Test-Path diff.patch) ? [System.IO.File]::ReadLines("diff.patch").Count : 0
+          "lines=$lines"       | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "sha=${{ github.sha }}"      | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "branch=${{ github.ref_name }}" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-
           Write-Host "Diff lines: $lines"
-
-          if ($lines -eq 0) {
-            "NO_DIFF=1" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          }
+          if ($lines -eq 0) { "NO_DIFF=1" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8 }
 
       - name: Bail out if no diff
         if: ${{ env.NO_DIFF == '1' }}
         run: |
           Write-Host "No diff; nothing to summarize."
           exit 0
-                 
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           python -m pip install unidiff
-          
+
       # --- Use explicit OLLAMA_PATH without probing user profiles ---
       - name: Patch PATH for Ollama CLI
         shell: powershell
         run: |
           try {
-          if (-not (Test-Path -LiteralPath $env:OLLAMA_PATH)) {            
+            if (-not (Test-Path -LiteralPath $env:OLLAMA_PATH)) {
               Write-Error "OLLAMA_PATH not found or inaccessible: $($env:OLLAMA_PATH)"
               Write-Error "If this is a per-user install, the runner service account may not have access."
               Write-Error "Fix by either: (1) installing Ollama system-wide (e.g., C:\Program Files\Ollama), or (2) running the GitHub Runner service under the same user."
               exit 1
             }
           } catch {
-            if ($_.Exception -is [System.UnauthorizedAccessException]) {              
+            if ($_.Exception -is [System.UnauthorizedAccessException]) {
               Write-Error "Access denied to OLLAMA_PATH: $($env:OLLAMA_PATH)."
               Write-Error "Install Ollama system-wide or change the service account to the same user who installed Ollama."
               exit 1
             }
             throw
           }
-
           $ollamaDir = Split-Path $env:OLLAMA_PATH
           "PATH=$ollamaDir;$env:Path" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           Write-Host "Using Ollama at: $($env:OLLAMA_PATH)"
-          
-      
+
       - name: Ensure local Ollama is running (service or background)
         shell: powershell
         env:
@@ -156,23 +136,21 @@ jobs:
               Start-Service -Name "Ollama"
             }
           } else {
-            #  Fallback: start ollama serve using explicit path
+            # Fallback: start ollama serve using explicit path
             Write-Host "Starting 'ollama serve' in background from $env:OLLAMA_PATH ..."
             try {
               Start-Process -FilePath $env:OLLAMA_PATH -ArgumentList "serve" -WindowStyle Hidden | Out-Null
-            } catch {              
+            } catch {
               Write-Error "Failed to start Ollama from $env:OLLAMA_PATH. $_"
               Write-Error "If this is a user-profile install, grant access or install system-wide."
               exit 1
-            }              
+            }
             Start-Sleep -Seconds 3
           }
-
           # Default model if not set
           if ([string]::IsNullOrWhiteSpace($env:OLLAMA_MODEL)) {
             $env:OLLAMA_MODEL = "qwen2.5-coder:3b-instruct"
           }
-
           # Try to detect if the model is present; pull if missing
           try {
             $resp = Invoke-WebRequest -Uri "$($env:OLLAMA_ENDPOINT)/api/tags" -UseBasicParsing -TimeoutSec 10
@@ -184,7 +162,6 @@ jobs:
             Write-Host "Pulling model $env:OLLAMA_MODEL ..."
             & $env:OLLAMA_PATH pull $env:OLLAMA_MODEL
           }
-
           # Health poll: wait until API is responsive
           $maxAttempts = 30
           $ok = $false
@@ -200,19 +177,20 @@ jobs:
             exit 1
           }
 
+      # --- RUN THE SIMPLIFIED SCRIPT ---
       - name: Summarize via LOCAL Ollama
         env:
           OLLAMA_ENDPOINT: ${{ env.OLLAMA_ENDPOINT }}
           OLLAMA_MODEL: ${{ env.OLLAMA_MODEL }}
           OLLAMA_TIMEOUT_PER_FILE: ${{ env.OLLAMA_TIMEOUT_PER_FILE }}
           OLLAMA_TIMEOUT_OVERALL: ${{ env.OLLAMA_TIMEOUT_OVERALL }}
-          NO_PROXY: "localhost,127.0.0.1"          
+          NO_PROXY: "localhost,127.0.0.1"
         run: |
           if ([string]::IsNullOrWhiteSpace($env:OLLAMA_MODEL)) {
             $env:OLLAMA_MODEL = "qwen2.5-coder:3b-instruct"
           }
           Write-Host "Using model: $env:OLLAMA_MODEL"
-
+          # Use the script
           python scripts/summarize_diff_ollama.py `
             --patch diff.patch `
             --repo "${{ github.repository }}" `
@@ -233,22 +211,17 @@ jobs:
         run: |
           $summaryDir = $env:SUMMARY_DIR
           if ([string]::IsNullOrWhiteSpace($summaryDir)) { $summaryDir = ".changes" }
-
           New-Item -ItemType Directory -Path $summaryDir -Force | Out-Null
           Move-Item -Path "summary.txt" -Destination (Join-Path $summaryDir "${{ steps.diff.outputs.sha }}.txt") -Force
-
-          git config --global user.name  "summary-bot"
+          git config --global user.name "summary-bot"
           git config --global user.email "summary-bot@users.noreply.github.com"
-
           git add (Join-Path $summaryDir "${{ steps.diff.outputs.sha }}.txt")
-
           $pending = (git diff --cached --name-only)
           if ([string]::IsNullOrWhiteSpace($pending)) {
             Write-Host "Nothing to commit"
           } else {
             git commit -m "Add change summary for ${{ steps.diff.outputs.sha }}"
           }
-
           try {
             git push
           } catch {
