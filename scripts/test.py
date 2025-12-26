@@ -9,3 +9,4 @@ print("HI")
 print("NEW")
 print("add")
 kl = [6,4,6,7]
+dec_ls = [6,4,6,7]
