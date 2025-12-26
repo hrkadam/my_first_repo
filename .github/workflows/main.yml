@@ -1,4 +1,3 @@
-
 name: Summarize Code Changes (Windows, PowerShell, System Python 3.11)
 
 on:
@@ -17,7 +16,7 @@ env:
   OLLAMA_TIMEOUT_PER_FILE: "120"
   OLLAMA_TIMEOUT_OVERALL: "600"
   OVERALL_BATCH_SIZE: "20"
-  OLLAMA_PATH: 'C:\Users\acc-techvi\AppData\Local\Programs\Ollama\ollama.exe'
+  OLLAMA_PATH: 'C:\\Users\\acc-techvi\\AppData\\Local\\Programs\\Ollama\\ollama.exe'
 
 jobs:
   summarize:
@@ -25,17 +24,226 @@ jobs:
     defaults:
       run:
         shell: powershell
+
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
-        clean: false
-    - name: Hard reset workspace to match event commit
-      shell: powershell
-      run: |
-        git fetch --all --prune
-        git checkout -f "${{ github.ref }}"
-        git reset --hard "${{ github.sha }}"
-        git clean -ffdx
-    
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          clean: false
+
+      - name: Patch PATH for system Python 3.11
+        id: patch_python
+        run: |
+          $pyHome = 'C:\\Python311'
+          $pyExe = Join-Path $pyHome 'python.exe'
+          $pyScripts = Join-Path $pyHome 'Scripts'
+          if (-not (Test-Path $pyExe)) {
+            Write-Error "python.exe not found at: $pyExe"
+            Write-Error "Install Python 3.11 at C:\\Python311."
+            exit 1
+          }
+          $newPath = "$pyHome;$pyScripts;$env:Path"
+          "PATH=$newPath" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "python_home=$pyHome" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "python_exe=$pyExe" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "Patched PATH with: $pyHome and $pyScripts"
+
+      - name: Verify system Python
+        run: |
+          python --version
+          python -m pip --version
+
+      - name: Print context
+        run: |
+          $oe = if ([string]::IsNullOrWhiteSpace($env:OLLAMA_ENDPOINT)) { '<empty>' } else { $env:OLLAMA_ENDPOINT }
+          $om = if ([string]::IsNullOrWhiteSpace($env:OLLAMA_MODEL))   { '<empty>' } else { $env:OLLAMA_MODEL }
+          Write-Host "Repository: ${{ github.repository }}"
+          Write-Host "Branch: ${{ github.ref_name }}"
+          Write-Host "Before: ${{ github.event.before }}"
+          Write-Host "SHA: ${{ github.sha }}"
+          Write-Host "OLLAMA_ENDPOINT: $oe"
+          Write-Host "OLLAMA_MODEL: $om"
+
+      - name: Compute diff (exact commit with fallbacks)
+        id: diff
+        run: |
+          git config --global core.autocrlf false
+          git fetch --no-tags --prune --depth=2 origin +refs/heads/*:refs/remotes/origin/*
+
+          # Primary: exactly the pushed commit
+          git diff --unified=3 --no-color "${{ github.sha }}^!" > diff.patch
+
+          if (-not (Test-Path 'diff.patch') -or ([System.IO.File]::ReadLines('diff.patch').Count -eq 0)) {
+            # Fallback: range from before to sha
+            git diff --unified=3 --no-color "${{ github.event.before }}..${{ github.sha }}" > diff.patch
+          }
+
+          if (-not (Test-Path 'diff.patch') -or ([System.IO.File]::ReadLines('diff.patch').Count -eq 0)) {
+            # Fallback: show this commit's changes only
+            git show --format= --unified=3 --no-color "${{ github.sha }}" > diff.patch
+          }
+
+          if (Test-Path 'diff.patch') {
+            $lines = [System.IO.File]::ReadLines('diff.patch').Count
+          } else {
+            $lines = 0
+          }
+
+          "lines=$lines"                  | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "sha=${{ github.sha }}"         | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "branch=${{ github.ref_name }}" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "Diff lines: $lines"
+
+          if ($lines -eq 0) {
+            "NO_DIFF=1" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          }
+
+      - name: Inspect patch head (TEMP)
+        if: ${{ env.NO_DIFF != '1' }}
+        run: |
+          Write-Host "Patch head (first 60 lines):"
+          Get-Content diff.patch -TotalCount 60 | ForEach-Object { Write-Host $_ }
+
+      - name: Bail out if no diff
+        if: ${{ env.NO_DIFF == '1' }}
+        run: |
+          Write-Host "No diff; nothing to summarize."
+          exit 0
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install unidiff
+
+      - name: Patch PATH for Ollama CLI
+        shell: powershell
+        run: |
+          try {
+            if (-not (Test-Path -LiteralPath $env:OLLAMA_PATH)) {
+              Write-Error "OLLAMA_PATH not found or inaccessible: $($env:OLLAMA_PATH)"
+              Write-Error "If this is a per-user install, the runner service account may not have access."
+              Write-Error "Fix by either: (1) installing Ollama system-wide (e.g., C:\\Program Files\\Ollama), or (2) running the GitHub Runner service under the same user."
+              exit 1
+            }
+          } catch {
+            if ($_.Exception -is [System.UnauthorizedAccessException]) {
+              Write-Error "Access denied to OLLAMA_PATH: $($env:OLLAMA_PATH)."
+              Write-Error "Install Ollama system-wide or change the service account to the same user who installed Ollama."
+              exit 1
+            }
+            throw
+          }
+          $ollamaDir = Split-Path $env:OLLAMA_PATH
+          "PATH=$ollamaDir;$env:Path" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "Using Ollama at: $($env:OLLAMA_PATH)"
+
+      - name: Ensure local Ollama is running (service or background)
+        shell: powershell
+        env:
+          OLLAMA_ENDPOINT: ${{ env.OLLAMA_ENDPOINT }}
+          OLLAMA_MODEL: ${{ env.OLLAMA_MODEL }}
+          OLLAMA_PATH: ${{ env.OLLAMA_PATH }}
+        run: |
+          $svc = Get-Service -Name "Ollama" -ErrorAction SilentlyContinue
+          if ($null -ne $svc) {
+            if ($svc.Status -ne 'Running') {
+              Write-Host "Starting Ollama Windows service..."
+              Start-Service -Name "Ollama"
+            }
+          } else {
+            Write-Host "Starting 'ollama serve' in background from $env:OLLAMA_PATH ..."
+            try {
+              Start-Process -FilePath $env:OLLAMA_PATH -ArgumentList "serve" -WindowStyle Hidden | Out-Null
+            } catch {
+              Write-Error "Failed to start Ollama from $env:OLLAMA_PATH. $_"
+              exit 1
+            }
+            Start-Sleep -Seconds 3
+          }
+          if ([string]::IsNullOrWhiteSpace($env:OLLAMA_MODEL)) {
+            $env:OLLAMA_MODEL = "qwen2.5-coder:7b"
+          }
+          try {
+            $resp = Invoke-WebRequest -Uri "$($env:OLLAMA_ENDPOINT)/api/tags" -UseBasicParsing -TimeoutSec 10
+            $tags = $resp.Content | ConvertFrom-Json
+          } catch {
+            $tags = $null
+          }
+          if ($null -eq $tags -or -not ($tags.models.name -contains $env:OLLAMA_MODEL)) {
+            Write-Host "Pulling model $env:OLLAMA_MODEL ..."
+            & $env:OLLAMA_PATH pull $env:OLLAMA_MODEL
+          }
+          $maxAttempts = 30
+          $ok = $false
+          for ($i = 1; $i -le $maxAttempts; $i++) {
+            try {
+              $ping = Invoke-WebRequest -Uri "$($env:OLLAMA_ENDPOINT)/api/tags" -UseBasicParsing -TimeoutSec 3
+              if ($ping.StatusCode -ge 200 -and $ping.StatusCode -lt 300) { $ok = $true; break }
+            } catch { }
+            Start-Sleep -Seconds 2
+          }
+          if (-not $ok) {
+            Write-Error "::error::Local Ollama not responding on $($env:OLLAMA_ENDPOINT)"
+            exit 1
+          }
+
+      - name: Summarize via LOCAL Ollama
+        env:
+          OLLAMA_ENDPOINT: ${{ env.OLLAMA_ENDPOINT }}
+          OLLAMA_MODEL: ${{ env.OLLAMA_MODEL }}
+          OLLAMA_TIMEOUT_PER_FILE: ${{ env.OLLAMA_TIMEOUT_PER_FILE }}
+          OLLAMA_TIMEOUT_OVERALL: ${{ env.OLLAMA_TIMEOUT_OVERALL }}
+          NO_PROXY: "localhost,127.0.0.1"
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:OLLAMA_MODEL)) {
+            $env:OLLAMA_MODEL = "qwen2.5-coder:7b"
+          }
+          Write-Host "Using model: $env:OLLAMA_MODEL"
+          python scripts/summarize_diff_ollama.py `
+            --patch diff.patch `
+            --repo "${{ github.repository }}" `
+            --branch "${{ steps.diff.outputs.branch }}" `
+            --sha "${{ steps.diff.outputs.sha }}" `
+            --out summary.txt
+
+      - name: Verify summary file
+        run: |
+          if (-not (Test-Path summary.txt) -or ((Get-Item summary.txt).Length -eq 0)) {
+            Write-Error "summary.txt missing or empty"
+            exit 1
+          }
+          Get-Content summary.txt -TotalCount 20 | ForEach-Object { Write-Host $_ }
+
+      - name: Commit summary (direct push)
+        run: |
+          $summaryDir = $env:SUMMARY_DIR
+          if ([string]::IsNullOrWhiteSpace($summaryDir)) { $summaryDir = ".changes" }
+          New-Item -ItemType Directory -Path $summaryDir -Force | Out-Null
+          Move-Item -Path "summary.txt" -Destination (Join-Path $summaryDir "${{ steps.diff.outputs.sha }}.txt") -Force
+          git config --global user.name "summary-bot"
+          git config --global user.email "summary-bot@users.noreply.github.com"
+          git add (Join-Path $summaryDir "${{ steps.diff.outputs.sha }}.txt")
+          $pending = (git diff --cached --name-only)
+          if ([string]::IsNullOrWhiteSpace($pending)) {
+            Write-Host "Nothing to commit"
+          } else {
+            git commit -m "Add change summary for ${{ steps.diff.outputs.sha }}"
+          }
+          try {
+            git push
+          } catch {
+            Write-Warning "Direct push failed (branch protection?). Throwing to enable PR fallback."
+            throw
+          }
+
+      - name: Open PR (fallback)
+        if: ${{ failure() }}
+        uses: peter-evans/create-pull-request@v6
+        with:
+          commit-message: "Add change summary for ${{ steps.diff.outputs.sha }}"
+          branch: "summary-bot/${{ steps.diff.outputs.sha }}"
+          title: "Add summary for ${{ steps.diff.outputs.sha }}"
+          body: "Automated summary created by Actions. Approve to merge."
+          add-paths: |
+            ${{ env.SUMMARY_DIR }}/${{ steps.diff.outputs.sha }}.txt
