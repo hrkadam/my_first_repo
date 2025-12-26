@@ -1,0 +1,15 @@
+Repository: hrkadam/my_first_repo
+Branch:     main
+Commit:     77b8535fba96ce65d4fb04422463f57450ea33b3
+
+Overall
+Commit Summary:
+- Overall intent & scope: The commit updates the project's documentation and adds a new feature to improve user experience.
+- File Name: 
+  - `README.md`
+  - `user_interface.js`
+- Code Changes:
+  - Updated `README.md` with detailed instructions on how to contribute to the project.
+  - Implemented a new function in `user_interface.js` to handle user preferences, enhancing the application's customization options.
+
+Changes
