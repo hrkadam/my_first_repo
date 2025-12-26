@@ -30,7 +30,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          clean: true
+          clean: false
 
       - name: Patch PATH for system Python 3.11
         id: patch_python
