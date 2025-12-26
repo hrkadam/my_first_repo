@@ -8,3 +8,4 @@ arr_ls = [0,0,0,0]
 print("HI")
 print("NEW")
 print("add")
+kl = [6,4,6,7]
