@@ -25,6 +25,38 @@ MAX_HUNKS_PER_FILE = 50
 TIMEOUT_PER_FILE = int(os.getenv("OLLAMA_TIMEOUT_PER_FILE", "120"))
 TIMEOUT_OVERALL = int(os.getenv("OLLAMA_TIMEOUT_OVERALL", "600"))
 
+
+# --- Add near the top of the file (under imports/helpers) ---
+# Exclude typical diff metadata that can also start with '+'
+ADDED_PREFIXES_EXCLUDE = (
+    "+++",      # file header
+    "+--",      # uncommon header
+    "+@@",      # hunk header rendered with '+'
+    "+index",   # index line
+    "+diff --git",
+    "+ No newline at end of file",  # noise line seen in your log
+)
+
+def added_only(minimal_patch: str, max_lines: int = 2000) -> str:
+    """
+    Return only '+' code lines from the minimal patch, excluding headers and noise.
+    Leading '+' is removed; lines are kept as-is otherwise.
+    """
+    out = []
+    for ln in minimal_patch.splitlines():
+        if not ln.startswith("+"):
+            continue
+        # exclude metadata/headers/noise that also start with '+'
+        if ln.startswith(ADDED_PREFIXES_EXCLUDE):
+            continue
+        code = ln[1:].rstrip()
+        if code:
+            out.append(code)
+        if len(out) >= max_lines:
+            break
+    return "\n".join(out)
+
+
 def _setup_logging():
     script_dir = os.path.dirname(os.path.abspath(__file__))
     log_path = os.path.join(script_dir, "summarize_patch.log")
@@ -68,7 +100,7 @@ def ollama_chat(messages: List[dict], timeout: int) -> str:
         # Make decoding stricter/deterministic
         "options": {
             "temperature": 0.0,
-            "num_ctx": 8192,        # larger context for bigger diffs (adjust if needed)
+            "num_ctx": 12288,        # larger context for bigger diffs (adjust if needed)
             "top_p": 0.9,
             "top_k": 40,
         },
@@ -100,41 +132,49 @@ def _file_language_hint(fname: str) -> str:
     else:
         return "generic"
 
+
+
+# --- Replace your summarize_file(...) with this version ---
 def summarize_file(fname: str, minimal_patch: str) -> str:
     """
     Prompt the LLM to produce an additions-focused summary per file.
     """
     lang = _file_language_hint(fname)
     system = textwrap.dedent(f"""
-    You are a senior code reviewer. Given a unified diff for ONE file, produce a concise,
-    fact-based summary focusing ONLY on ACTUAL additions (lines starting with '+').
-    Rules:
-    - Identify newly ADDED functions/classes by exact name/signature if present in '+' lines.
-    - Prefer overview from adjacent docstrings/comments; summarize in 1–2 lines per item.
-    - If there are no true additions, say: "No code additions detected."
-    - Do NOT invent names, behavior, tickets, or intent not present in the diff.
-    - Ignore unchanged context, metadata (diff headers), and deletions unless they explain the additions.
+    You are a senior code reviewer. Summarize ONLY the actual additions made in this file.
+
+    STRICT RULES:
+    - Use the ADDED_ONLY block to locate newly ADDED functions/classes/methods.
+    - List each new function/class by exact name/signature. For each, add a 1–2 line overview
+      (prefer adjacent docstrings/comments if present).
+    - If ADDED_ONLY is empty or has no recognizable code, return exactly: "No code additions detected."
+    - Do NOT invent content or infer behavior that is not visible in ADDED_ONLY.
     - Keep it ≤ 10 lines, scannable bullets.
     """).strip()
 
-    # Nudge by language
     language_tip = {
-        "python": "Focus on `def name(params):` and `class Name:` lines in '+' additions.",
-        "javascript/typescript": "Focus on `function name(...)` / `const name = (...) =>` / `class Name` in '+' additions.",
-        "java": "Focus on method signatures `returnType name(...)` and `class Name` in '+' additions.",
-        "go": "Focus on `func name(...)` and `type Name struct` in '+' additions.",
-        "csharp": "Focus on `type name(...)` methods and `class Name` in '+' additions.",
-        "generic": "Report additions at a high level; if no recognizable functions/classes, give counts.",
+        "python": "Look for: def name(params): and class Name:",
+        "javascript/typescript": "Look for: function name(...), const name = (...) =>, class Name",
+        "java": "Look for: returnType name(...), class Name",
+        "go": "Look for: func name(...), type Name struct",
+        "csharp": "Look for: returnType Name(...), class Name",
+        "generic": "If nothing recognizable exists, return the 'No code additions detected.' message.",
     }[lang]
+
+    # Build views
+    added_view = added_only(minimal_patch)
+    trimmed_view = trim_patch_text(minimal_patch)
 
     user = (
         f"FILE: {fname}\n"
-        f"LANGUAGE_HINT: {lang} — {language_tip}\n"
-        "PATCH (trimmed to +/- and @@ lines only):\n"
-        f"{trim_patch_text(minimal_patch)}"
+        f"LANGUAGE_HINT: {lang} — {language_tip}\n\n"
+        "ADDED_ONLY:\n"
+        f"{added_view}\n\n"
+        "TRIMMED_DIFF (context only):\n"
+        f"{trimmed_view}"
     )
 
-    logger.info("Summarizing file: %s", fname)
+    logger.info("Summarizing file: %s (added-only len=%d)", fname, len(added_view))
     return ollama_chat(
         [
             {"role": "system", "content": system},
@@ -142,6 +182,49 @@ def summarize_file(fname: str, minimal_patch: str) -> str:
         ],
         timeout=TIMEOUT_PER_FILE
     )
+
+# def summarize_file(fname: str, minimal_patch: str) -> str:
+#     """
+#     Prompt the LLM to produce an additions-focused summary per file.
+#     """
+#     lang = _file_language_hint(fname)
+#     system = textwrap.dedent(f"""
+#     You are a senior code reviewer. Given a unified diff for ONE file, produce a concise,
+#     fact-based summary focusing ONLY on ACTUAL additions (lines starting with '+').
+#     Rules:
+#     - Identify newly ADDED functions/classes by exact name/signature if present in '+' lines.
+#     - Prefer overview from adjacent docstrings/comments; summarize in 1–2 lines per item.
+#     - If there are no true additions, say: "No code additions detected."
+#     - Do NOT invent names, behavior, tickets, or intent not present in the diff.
+#     - Ignore unchanged context, metadata (diff headers), and deletions unless they explain the additions.
+#     - Keep it ≤ 10 lines, scannable bullets.
+#     """).strip()
+
+#     # Nudge by language
+#     language_tip = {
+#         "python": "Focus on `def name(params):` and `class Name:` lines in '+' additions.",
+#         "javascript/typescript": "Focus on `function name(...)` / `const name = (...) =>` / `class Name` in '+' additions.",
+#         "java": "Focus on method signatures `returnType name(...)` and `class Name` in '+' additions.",
+#         "go": "Focus on `func name(...)` and `type Name struct` in '+' additions.",
+#         "csharp": "Focus on `type name(...)` methods and `class Name` in '+' additions.",
+#         "generic": "Report additions at a high level; if no recognizable functions/classes, give counts.",
+#     }[lang]
+
+#     user = (
+#         f"FILE: {fname}\n"
+#         f"LANGUAGE_HINT: {lang} — {language_tip}\n"
+#         "PATCH (trimmed to +/- and @@ lines only):\n"
+#         f"{trim_patch_text(minimal_patch)}"
+#     )
+
+#     logger.info("Summarizing file: %s", fname)
+#     return ollama_chat(
+#         [
+#             {"role": "system", "content": system},
+#             {"role": "user",   "content": user},
+#         ],
+#         timeout=TIMEOUT_PER_FILE
+#     )
 
 def synthesize_overall(repo: str, branch: str, sha: str, per_file_sections: List[Tuple[str, str]]) -> str:
     system = textwrap.dedent("""
