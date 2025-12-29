@@ -72,16 +72,16 @@ jobs:
           git fetch --no-tags --prune --depth=2 origin +refs/heads/*:refs/remotes/origin/*
 
           # Primary: exactly the pushed commit
-          git diff --unified=3 --no-color "${{ github.sha }}^!" > diff.patch
+          git diff --unified=3 --no-color "${{ github.sha }}^!" | Out-File -FilePath diff.patch -Encoding utf8
 
           if (-not (Test-Path 'diff.patch') -or ([System.IO.File]::ReadLines('diff.patch').Count -eq 0)) {
             # Fallback: range from before to sha
-            git diff --unified=3 --no-color "${{ github.event.before }}..${{ github.sha }}" > diff.patch
+            git diff --unified=3 --no-color "${{ github.event.before }}..${{ github.sha }}" | Out-File -FilePath diff.patch -Encoding utf8
           }
 
           if (-not (Test-Path 'diff.patch') -or ([System.IO.File]::ReadLines('diff.patch').Count -eq 0)) {
             # Fallback: show this commit's changes only
-            git show --format= --unified=3 --no-color "${{ github.sha }}" > diff.patch
+            git show --format= --unified=3 --no-color "${{ github.sha }}" | Out-File -FilePath diff.patch -Encoding utf8
           }
 
           if (Test-Path 'diff.patch') {
