@@ -15,5 +15,6 @@ dec_new = [1,8,3,5,9]
 ls_dec_new = [1,8,3,5,9]
 new_ls_29 = [4,7,8,2,1]
 print('new msg')
-def test(a,b):
+def fun_subt(a,b):
+    return a-b
     
