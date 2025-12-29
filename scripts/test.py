@@ -18,3 +18,6 @@ print('new msg')
 def fun_subt(a,b):
     return a-b
     
+def new_fun(x,y,z):
+    c=x+y+z
+    return c
