@@ -190,6 +190,7 @@ def main():
 
     per_file = []
     for pf in patch:
+        logger.info("Processing file patch: %s", pf)  # ADDED
         fname = pf.path or pf.target_file
         # Skip noise dirs
         if fname:
@@ -202,25 +203,25 @@ def main():
         text_chunks = []
         hcount = 0
         for h in pf:
+            logger.info("Processing hunk: %s", h)  # ADDED
             hcount += 1
             if hcount > MAX_HUNKS_PER_FILE:
                 logger.warning("Hunk cap reached for %s (%d > %d)", fname, hcount, MAX_HUNKS_PER_FILE)
                 break
             hdr = f"@@ -{h.source_start},{h.source_length} +{h.target_start},{h.target_length} @@"
             changes = "\n".join(l.value.rstrip("\n") for l in h)
+            logger.info("Hunk changes length: %d chars", len(changes))  # ADDED
             text_chunks.append(hdr + "\n" + changes)
-
+            logger.info("Added hunk to text_chunks for file: %s", fname)  # ADDED
         if not text_chunks:
             logger.info("No hunks to summarize for file: %s", fname)
             continue
 
         minimal = "\n".join(text_chunks)
-        # Cap length safely
+        logger.info("Total minimal patch length for %s: %d chars", fname, len(minimal))  # ADDED
         minimal = "\n".join(minimal.splitlines()[:MAX_LINES_PER_FILE])
-
-        logger.info("Total minimal patch length for %s: %d chars", fname, len(minimal))
-
-        # Summarize via LLM
+        logger.info("Trimmed minimal patch length for %s: %d chars", fname, len(minimal))  # ADDED
+        # Summarize per file via Ollama
         try:
             s = summarize_file(fname or "<unknown>", minimal)
             # Use first line for the 'Changes' quick list
@@ -252,6 +253,7 @@ def main():
     report.append("")
     report.append("Changes")
     for f, s in per_file:
+        # Use only the first line of the model output to keep it simple
         first_line = (s or "").splitlines()[0] if s else ""
         report.append(f"- {f}: {first_line}")
 
