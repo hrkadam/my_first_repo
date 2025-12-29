@@ -27,3 +27,6 @@ def multi(a,b):
 
 def add_3(a,b,c):
     return a+b+c
+
+def square_fun(x):
+    return x*x
