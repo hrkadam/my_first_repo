@@ -21,3 +21,6 @@ def fun_subt(a,b):
 def new_fun(x,y,z):
     c=x+y+z
     return c
+
+def multi(a,b):
+    return a*b
