@@ -97,6 +97,7 @@ def summarize_file(fname: str, minimal_patch: str) -> str:  # CHANGED signature 
     - code changes    
     Keep it concise (<= 12 lines). Avoid reprinting the patch.
     """)
+    logger.info('minimal_patch = ',minimal_patch)
     user = f"FILE: {fname}\nPATCH:\n{trim_patch_text(minimal_patch)}"
     logger.info("Summarizing file: %s", fname)  # ADDED
     return ollama_chat([
@@ -142,6 +143,8 @@ def main():
 
     per_file = []
     for pf in patch:
+        logger.info(type(pf))
+        logger.info(pf)
         fname = pf.path or pf.target_file
         # Skip noise dirs
         if fname:
@@ -159,6 +162,7 @@ def main():
                 break
             hdr = f"@@ -{h.source_start},{h.source_length} +{h.target_start},{h.target_length} @@"
             changes = "\n".join(l.value.rstrip("\n") for l in h)
+            logger.info('changes = ',changes)
             text_chunks.append(hdr + "\n" + changes)
         if not text_chunks:
             logger.info("No hunks to summarize for file: %s", fname)  # ADDED
