@@ -1,0 +1,14 @@
+Repository: hrkadam/my_first_repo
+Branch:     main
+Commit:     2b5afcf954abc0c74669854c743b4e02b95a42e2
+
+Overall
+**Commit Summary:**
+- **Intent & Scope:** Improve debugging of test case failures by adding detailed logging.
+- **File Name:** `scripts/test.py`
+- **Code Changes:**
+  - Added import for the `logging` module.
+  - Modified assertion handling to log an error message when a test fails before raising an exception.
+
+Changes
+- scripts/test.py: **Intent:** Add logging for test case failures to improve debugging.
