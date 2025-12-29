@@ -1,8 +1,0 @@
-Repository: hrkadam/my_first_repo
-Branch:     main
-Commit:     245ac57656b550b1321f74ed35121b99a97142de
-
-### Overall Summary
-(Error synthesizing overall summary: 504 Server Error: Gateway Timeout for url: http://localhost:11434/api/chat)
-
-### File-by-File
