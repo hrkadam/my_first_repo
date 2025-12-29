@@ -24,3 +24,6 @@ def new_fun(x,y,z):
 
 def multi(a,b):
     return a*b
+
+def add_3(a,b,c):
+    return a+b+c
