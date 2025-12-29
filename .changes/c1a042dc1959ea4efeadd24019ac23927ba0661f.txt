@@ -1,0 +1,14 @@
+Repository: hrkadam/my_first_repo
+Branch:     main
+Commit:     c1a042dc1959ea4efeadd24019ac23927ba0661f
+
+Overall
+**Commit Summary:**
+- **Overall intent & scope:** Added new functionality to summarize differences for Ollama models.
+- **File name:** scripts/summarize_diff_ollama.py
+- **Code changes:**
+  - Line 97: Added new code.
+  - Lines 143 and 162: Added new code.
+
+Changes
+- scripts/summarize_diff_ollama.py: Intent & high-level change: Add new functionality to summarize diff for Ollama models.
