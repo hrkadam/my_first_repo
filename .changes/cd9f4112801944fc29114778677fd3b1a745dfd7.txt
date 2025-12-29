@@ -1,0 +1,14 @@
+Repository: hrkadam/my_first_repo
+Branch:     main
+Commit:     cd9f4112801944fc29114778677fd3b1a745dfd7
+
+Overall
+**Commit Summary:**
+- **Overall intent & scope:** Updated the CI/CD workflow to include new test steps, specifically adding an integration test in addition to modifying an existing unit test step.
+- **File Name:** `.github/workflows/main.yml`
+- **Code Changes:**
+  - Modified the existing test step to run a specific unit test.
+  - Added a new integration test step.
+
+Changes
+- .github/workflows/main.yml: Intent: Update CI/CD workflow to include new test steps.
