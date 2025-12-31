@@ -1,27 +1,42 @@
 #!/usr/bin/env python3
 """
 Summarize a unified diff using Ollama (local/remote).
-Fixes: additions-only view includes preceding signature context lines so new functions/classes
-are detected even when the 'def/class' line appears as context.
+
+Fix:
+- Make the LLM focus on ACTUAL additions by sending an ADDED_ONLY view.
+- Include preceding signature context lines (e.g., `def foo(...)` or `class Bar:`)
+  when the body is added but the signature appears as context in the diff.
+- Filter noisy lines such as `+ No newline at end of file`.
+
+CLI:
+  python summarize_diff_ollama_fixed.py --patch diff.patch --repo <owner/name> \
+      --branch <branch> --sha <sha> --out summary.txt
 """
-import os, sys, argparse, textwrap, time
-from typing import List, Tuple
-import requests
-from unidiff import PatchSet
+import os
+import sys
+import argparse
+import textwrap
+import time
 import logging
 from logging.handlers import RotatingFileHandler
+from typing import List, Tuple
 
+import requests
+from unidiff import PatchSet
+
+# ---------------- config ----------------
 OLLAMA_ENDPOINT = os.getenv("OLLAMA_ENDPOINT", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5-coder:7b")
 OLLAMA_API_TOKEN = os.getenv("OLLAMA_API_TOKEN", "")
+
 SKIP_DIRS = {"node_modules", "vendor", "dist", "build", ".venv", ".git"}
 MAX_LINES_PER_FILE = 2000
 MAX_HUNKS_PER_FILE = 50
 TIMEOUT_PER_FILE = int(os.getenv("OLLAMA_TIMEOUT_PER_FILE", "120"))
 TIMEOUT_OVERALL = int(os.getenv("OLLAMA_TIMEOUT_OVERALL", "600"))
 
-
-def _setup_logging():
+# ---------------- logging ----------------
+def _setup_logging() -> logging.Logger:
     script_dir = os.path.dirname(os.path.abspath(__file__))
     log_path = os.path.join(script_dir, "summarize_patch.log")
     logger = logging.getLogger(__name__)
@@ -38,38 +53,46 @@ def _setup_logging():
 
 logger = _setup_logging()
 
-
-def _headers():
+# ---------------- http helpers ----------------
+def _headers() -> dict:
     h = {"Content-Type": "application/json"}
     if OLLAMA_API_TOKEN:
         h["Authorization"] = f"Bearer {OLLAMA_API_TOKEN}"
     return h
 
-
-def trim_patch_text(text: str, max_lines=1200):
-    lines = []
+# ---------------- diff helpers ----------------
+def trim_patch_text(text: str, max_lines: int = 1200) -> str:
+    """Keep only +/-, @@, and minimal headers; cap length."""
+    lines: List[str] = []
     for ln in text.splitlines():
         if ln.startswith(("+", "-", "@@", "diff --git", "index", "---", "+++")):
             lines.append(ln)
-    return "
-".join(lines[:max_lines])
+    if len(lines) > max_lines:
+        lines = lines[:max_lines]
+    return "\n".join(lines)
 
-
+# ---------------- ollama ----------------
 def ollama_chat(messages: List[dict], timeout: int) -> str:
+    """Call Ollama /api/chat with low temperature for deterministic output."""
     url = f"{OLLAMA_ENDPOINT}/api/chat"
     payload = {
         "model": OLLAMA_MODEL,
         "messages": messages,
         "stream": False,
-        "options": {"temperature": 0.0, "num_ctx": 8192, "top_p": 0.9, "top_k": 40},
+        "options": {
+            "temperature": 0.0,
+            "num_ctx": 8192,
+            "top_p": 0.9,
+            "top_k": 40,
+        },
     }
     logger.info("Calling Ollama: model=%s timeout=%s", OLLAMA_MODEL, timeout)
     r = requests.post(url, json=payload, headers=_headers(), timeout=timeout)
     r.raise_for_status()
     data = r.json()
-    return data.get("message", {}).get("content", "").strip()
+    return (data.get("message", {}) or {}).get("content", "").strip()
 
-
+# ---------------- language hints ----------------
 def _file_language_hint(fname: str) -> str:
     ext = os.path.splitext(fname)[1].lower()
     if ext == ".py":
@@ -85,35 +108,68 @@ def _file_language_hint(fname: str) -> str:
     else:
         return "generic"
 
+# ---------------- additions-only view ----------------
 ADDED_PREFIXES_EXCLUDE = (
-    "+++", "+--", "+@@", "+index", "+diff --git", "+ No newline at end of file",
+    "+++",             # file header
+    "+--",             # uncommon header
+    "+@@",             # hunk header rendered with '+'
+    "+index",          # index line
+    "+diff --git",     # diff header
+    "+ No newline at end of file",  # noise
+)
+
+NOISE_LINE_CONTENTS = (
+    "No newline at end of file",
 )
 
 def added_only(minimal_patch: str, max_lines: int = 3000) -> str:
-    """Return '+' code lines; include preceding signature context if present."""
-    out = []
+    """
+    Build an additions-only view:
+      - Include '+' code lines, dropping diff/metadata noise.
+      - If the line immediately BEFORE a '+' block looks like a function/class signature
+        and is context (no '+'/'-'), include it as well.
+      - Also include a preceding decorator line (e.g., '@dataclass') if present.
+    """
+    out: List[str] = []
     lines = minimal_patch.splitlines()
+
     def is_noise(ln: str) -> bool:
-        return ln.startswith(ADDED_PREFIXES_EXCLUDE)
+        if ln.startswith(ADDED_PREFIXES_EXCLUDE):
+            return True
+        # e.g., "+ No newline at end of file"
+        if ln.lstrip('+ ').strip() in NOISE_LINE_CONTENTS:
+            return True
+        return False
+
     def looks_like_sig(ln: str) -> bool:
         l = ln.lstrip('+ ').strip()
         return l.startswith('def ') or l.startswith('class ')
+
+    def looks_like_decorator(ln: str) -> bool:
+        l = ln.lstrip('+ ').strip()
+        return l.startswith('@')
+
     for i, ln in enumerate(lines):
         if ln.startswith('+') and not is_noise(ln):
+            # Capture preceding signature and decorator lines if they are context
             if i > 0:
                 prev = lines[i-1]
-                if (not prev.startswith(('+','-'))) and looks_like_sig(prev):
-                    out.append(prev.strip())
+                if (not prev.startswith(('+', '-'))):
+                    if looks_like_sig(prev):
+                        out.append(prev.strip())
+                    elif looks_like_decorator(prev):
+                        out.append(prev.strip())
+            # Add the actual added code line
             code = ln[1:].rstrip()
             if code:
                 out.append(code)
             if len(out) >= max_lines:
                 break
-    return "
-".join(out)
+    return "\n".join(out)
 
-
+# ---------------- per-file summarization ----------------
 def summarize_file(fname: str, minimal_patch: str) -> str:
+    """Prompt the LLM to produce an additions-focused summary per file."""
     lang = _file_language_hint(fname)
     system = textwrap.dedent(
         """
@@ -141,26 +197,22 @@ def summarize_file(fname: str, minimal_patch: str) -> str:
     trimmed_view = trim_patch_text(minimal_patch)
 
     user = (
-        f"FILE: {fname}
-"
-        f"LANGUAGE_HINT: {lang} — {language_tip}
-
-"
-        "ADDED_ONLY:
-" + added_view + "
-
-" +
-        "TRIMMED_DIFF (context only):
-" + trimmed_view
+        f"FILE: {fname}\n"
+        f"LANGUAGE_HINT: {lang} — {language_tip}\n\n"
+        "ADDED_ONLY:\n" + added_view + "\n\n" +
+        "TRIMMED_DIFF (context only):\n" + trimmed_view
     )
 
     logger.info("Summarizing file: %s (added-only len=%d)", fname, len(added_view))
-    return ollama_chat([
-        {"role": "system", "content": system},
-        {"role": "user",   "content": user},
-    ], timeout=TIMEOUT_PER_FILE)
+    return ollama_chat(
+        [
+            {"role": "system", "content": system},
+            {"role": "user",   "content": user},
+        ],
+        timeout=TIMEOUT_PER_FILE,
+    )
 
-
+# ---------------- overall synthesis ----------------
 def synthesize_overall(repo: str, branch: str, sha: str, per_file_sections: List[Tuple[str, str]]) -> str:
     system = textwrap.dedent(
         """
@@ -173,26 +225,23 @@ def synthesize_overall(repo: str, branch: str, sha: str, per_file_sections: List
     ).strip()
 
     user = (
-        f"Repository: {repo}
-Branch: {branch}
-Commit: {sha}
-
-" +
-        "
-
-".join([f"FILE: {f}
-SUMMARY:
-{s}" for f, s in per_file_sections])
+        f"Repository: {repo}\n"
+        f"Branch: {branch}\n"
+        f"Commit: {sha}\n\n" +
+        "\n\n".join([f"FILE: {f}\nSUMMARY:\n{s}" for f, s in per_file_sections])
     )
 
     logger.info("Synthesizing overall summary for %d file(s)", len(per_file_sections))
-    return ollama_chat([
-        {"role": "system", "content": system},
-        {"role": "user",   "content": user},
-    ], timeout=TIMEOUT_OVERALL)
+    return ollama_chat(
+        [
+            {"role": "system", "content": system},
+            {"role": "user",   "content": user},
+        ],
+        timeout=TIMEOUT_OVERALL,
+    )
 
-
-def main():
+# ---------------- main ----------------
+def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--patch", required=True)
     ap.add_argument("--repo", required=True)
@@ -201,8 +250,12 @@ def main():
     ap.add_argument("--out", default="summary.txt")
     args = ap.parse_args()
 
-    logger.info("Starting script with repo=%s branch=%s sha=%s out=%s", args.repo, args.branch, args.sha, args.out)
+    logger.info(
+        "Starting script with repo=%s branch=%s sha=%s out=%s",
+        args.repo, args.branch, args.sha, args.out,
+    )
 
+    # Load patch
     try:
         with open(args.patch, "r", encoding="utf-8", errors="ignore") as f:
             patch = PatchSet(f)
@@ -211,16 +264,18 @@ def main():
         logger.exception("Failed to load/parse patch: %s", args.patch)
         sys.exit(2)
 
-    per_file = []
+    per_file: List[Tuple[str, str]] = []
     for pf in patch:
         fname = pf.path or pf.target_file
+        # Skip noise dirs
         if fname:
             parts = fname.split("/")
             if any(d in SKIP_DIRS for d in parts):
                 logger.info("Skipping file in ignored directory: %s", fname)
                 continue
 
-        text_chunks = []
+        # Build minimal unified text per file
+        text_chunks: List[str] = []
         hcount = 0
         for h in pf:
             logger.info("Processing hunk: %s", h)
@@ -229,45 +284,41 @@ def main():
                 logger.warning("Hunk cap reached for %s (%d > %d)", fname, hcount, MAX_HUNKS_PER_FILE)
                 break
             hdr = f"@@ -{h.source_start},{h.source_length} +{h.target_start},{h.target_length} @@"
-            changes = "
-".join(l.value.rstrip("
-") for l in h)
+            changes = "\n".join(l.value.rstrip("\n") for l in h)
             logger.info("Hunk changes length: %d chars", len(changes))
-            text_chunks.append(hdr + "
-" + changes)
+            text_chunks.append(hdr + "\n" + changes)
 
         if not text_chunks:
             logger.info("No hunks to summarize for file: %s", fname)
             continue
 
-        minimal = "
-".join(text_chunks)
+        minimal = "\n".join(text_chunks)
         logger.info("Total minimal patch length for %s: %d chars", fname, len(minimal))
-        minimal = "
-".join(minimal.splitlines()[:MAX_LINES_PER_FILE])
+        minimal = "\n".join(minimal.splitlines()[:MAX_LINES_PER_FILE])
         logger.info("Trimmed minimal patch length for %s: %d chars", fname, len(minimal))
 
+        # Summarize via LLM
         try:
             s = summarize_file(fname or "<unknown>", minimal)
             first_line = (s or "").splitlines()[0] if s else ""
-            logger.info("Summary for file %s: %s", fname, first_line.replace("
-", " ")[:150])
+            logger.info("Summary for file %s: %s", fname, first_line.replace("\n", " ")[:150])
         except Exception as e:
             logger.exception("Error summarizing file: %s", fname)
             s = f"(Error summarizing {fname}: {e})"
 
         per_file.append((fname or "<unknown>", s))
-        time.sleep(0.2)
+        time.sleep(0.2)  # small pacing
 
+    # Overall synthesis
     try:
         overall = synthesize_overall(args.repo, args.branch, args.sha, per_file)
-        logger.info("Overall summary (head): %s", (overall[:200] or "").replace("
-", " "))
+        logger.info("Overall summary (head): %s", (overall[:200] or "").replace("\n", " "))
     except Exception as e:
         logger.exception("Error synthesizing overall summary")
         overall = f"(Error synthesizing overall summary: {e})"
 
-    report = [
+    # Assemble final report
+    report: List[str] = [
         f"Repository: {args.repo}",
         f"Branch: {args.branch}",
         f"Commit: {args.sha}",
@@ -275,7 +326,7 @@ def main():
         "Overall",
         overall or "",
         "",
-        "Changes"
+        "Changes",
     ]
     for f, s in per_file:
         first_line = (s or "").splitlines()[0] if s else ""
@@ -283,9 +334,7 @@ def main():
 
     try:
         with open(args.out, "w", encoding="utf-8") as f:
-            f.write("
-".join(report).strip() + "
-")
+            f.write("\n".join(report).strip() + "\n")
         logger.info("Wrote summary to %s", args.out)
     except Exception:
         logger.exception("Failed writing output file: %s", args.out)
