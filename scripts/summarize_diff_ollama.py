@@ -122,50 +122,31 @@ NOISE_LINE_CONTENTS = (
     "No newline at end of file",
 )
 
+
 def added_only(minimal_patch: str, max_lines: int = 3000) -> str:
     """
-    Build an additions-only view:
-      - Include '+' code lines, dropping diff/metadata noise.
-      - If the line immediately BEFORE a '+' block looks like a function/class signature
-        and is context (no '+'/'-'), include it as well.
-      - Also include a preceding decorator line (e.g., '@dataclass') if present.
+    Return '+' code lines only.
+    Do NOT treat backslash metadata ('\\ No newline at end of file') as a group boundary.
+    Just ignore that metadata line but keep real additions.
     """
-    out: List[str] = []
-    lines = minimal_patch.splitlines()
+    out = []
+    for ln in minimal_patch.splitlines():
+        # ignore metadata noise, but do NOT suppress previous real additions
+        if ln.startswith("+"):
+            if ln.strip() in ("+ No newline at end of file", "+\\ No newline at end of file"):
+                continue
+            # ignore diff headers
+            if ln.startswith(("+++", "+--", "+@@", "+index", "+diff --git")):
+                continue
+            out.append(ln[1:].rstrip())  # strip leading '+'
+        # ignore "\" noise line
+        if ln.startswith("\\ No newline at end of file"):
+            continue
 
-    def is_noise(ln: str) -> bool:
-        if ln.startswith(ADDED_PREFIXES_EXCLUDE):
-            return True
-        # e.g., "+ No newline at end of file"
-        if ln.lstrip('+ ').strip() in NOISE_LINE_CONTENTS:
-            return True
-        return False
-
-    def looks_like_sig(ln: str) -> bool:
-        l = ln.lstrip('+ ').strip()
-        return l.startswith('def ') or l.startswith('class ')
-
-    def looks_like_decorator(ln: str) -> bool:
-        l = ln.lstrip('+ ').strip()
-        return l.startswith('@')
-
-    for i, ln in enumerate(lines):
-        if ln.startswith('+') and not is_noise(ln):
-            # Capture preceding signature and decorator lines if they are context
-            if i > 0:
-                prev = lines[i-1]
-                if (not prev.startswith(('+', '-'))):
-                    if looks_like_sig(prev):
-                        out.append(prev.strip())
-                    elif looks_like_decorator(prev):
-                        out.append(prev.strip())
-            # Add the actual added code line
-            code = ln[1:].rstrip()
-            if code:
-                out.append(code)
-            if len(out) >= max_lines:
-                break
+        if len(out) >= max_lines:
+            break
     return "\n".join(out)
+
 
 # ---------------- per-file summarization ----------------
 def summarize_file(fname: str, minimal_patch: str) -> str:
