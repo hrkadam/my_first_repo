@@ -1,0 +1,9 @@
+Repository: hrkadam/my_first_repo
+Branch:     main
+Commit:     062dbc57e8acc929bf5467f1f354ca43f07341ff
+
+Summary
+File: scripts/test.py  
+- Purpose: Test script for employee management.  
+- Changes:  
+  • Removed: `emp_ls = []`
