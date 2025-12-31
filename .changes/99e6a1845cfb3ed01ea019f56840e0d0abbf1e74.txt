@@ -1,0 +1,13 @@
+Repository: hrkadam/my_first_repo
+Branch:     main
+Commit:     99e6a1845cfb3ed01ea019f56840e0d0abbf1e74
+
+Summary
+File: scripts/test.py
+- Purpose: No changes to the file's purpose.
+- Changes:
+  • Added: 
+    ```python
+        def new_test_fun():
+            print("inside fun")
+    ```
