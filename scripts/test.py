@@ -37,4 +37,8 @@ def fun2(x,y,z):
     return x+y+z
     
 def new_test_fun():
-    print("inside fun")  
+    print("inside fun")
+
+my_list = []
+def win_test(a,b):
+    return a+b
