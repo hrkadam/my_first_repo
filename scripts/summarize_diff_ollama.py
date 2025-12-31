@@ -173,19 +173,20 @@ def summarize_file(fname: str, minimal_patch: str, pf) -> str:
     added_view = build_added_only_from_patch_file(pf)
     trimmed_view = trim_patch_text(minimal_patch)
 
-    system = textwrap.dedent(
-        """
-        You are a senior code reviewer. Summarize ONLY the actual additions made in this file.
+    
+    system = textwrap.dedent("""
+    You are a senior code reviewer. Summarize ONLY the actual additions made in this file.
 
-        STRICT RULES:
-        - Use the ADDED_ONLY block to locate newly ADDED functions/classes/methods and other added statements.
-        - For each new function/class, list exact name/signature and provide a 1–2 line overview (prefer docstrings/comments).
-        - Also report notable added statements (e.g., new print/log statements) with a brief purpose if inferable.
-        - If ADDED_ONLY is empty or has no recognizable code, return exactly: "No code additions detected."
-        - Do NOT invent behavior or intent that is not visible in ADDED_ONLY.
-        - Keep it ≤ 10 lines, scannable bullets.
-        """
-    ).strip()
+    Rules:
+    - If ADDED_ONLY is empty, return exactly: "No code additions detected."
+    - Otherwise, summarize ALL added code:
+    • New functions/classes (name + 1–2 line purpose)
+    • Added statements such as print(), logging, returns, expressions, conditionals, variable updates, etc.
+    - Each bullet must reflect only what is visible in ADDED_ONLY.
+    - Do NOT invent behavior that is not present in the diff.
+    - Keep it ≤ 10 lines, use short bullets.
+    """).strip()
+
 
     language_tip = {
         "python": "Look for: def name(params):, class Name:, and added statements like print(...) or logging.*",
