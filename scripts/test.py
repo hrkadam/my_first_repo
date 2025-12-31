@@ -35,3 +35,6 @@ def square_fun(x):
     
 def fun2(x,y,z):
     return x+y+z
+    
+def new_test_fun():
+    print("inside fun")  
