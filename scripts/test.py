@@ -48,3 +48,6 @@ print("hello test 6")
 print("hello test 7")
 print("hello test 8")
 print("finally fixed?")
+def max_fun(x,y,z):
+    v = x*y*z
+    return v
