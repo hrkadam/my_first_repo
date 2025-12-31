@@ -1,0 +1,11 @@
+Repository: hrkadam/my_first_repo
+Branch: main
+Commit: 5f928f2becb3028ec186804155bee21af8b513e0
+
+Overall
+**Commit Summary:** Updated test script with new function and minor fix.
+
+- **scripts/test.py**: Added `max_fun(x, y, z)` for calculating the product of three numbers. Fixed a minor issue with a print statement.
+
+Changes
+- scripts/test.py: - Added function `max_fun(x, y, z)` to calculate the product of three numbers.
