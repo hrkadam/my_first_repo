@@ -2,14 +2,17 @@
 """
 Summarize a unified diff using Ollama (local/remote).
 
-Fix:
-- Make the LLM focus on ACTUAL additions by sending an ADDED_ONLY view.
-- Include preceding signature context lines (e.g., `def foo(...)` or `class Bar:`)
-  when the body is added but the signature appears as context in the diff.
-- Filter noisy lines such as `+ No newline at end of file`.
+Fully rewritten, clean version that:
+- Parses unified diff with unidiff.
+- Builds an ADDED_ONLY view (robust): collects true added lines from hunks,
+  filters diff noise, and includes preceding signature/decorator context when needed.
+- Prompts the LLM to enumerate *actual* additions: new functions/classes and other code changes
+  (e.g., added print statements), with 1–2 line overviews.
+- Synthesizes an overall commit summary.
+- Writes summary.txt.
 
 CLI:
-  python summarize_diff_ollama_fixed.py --patch diff.patch --repo <owner/name> \
+  python summarize_diff_ollama_clean.py --patch diff.patch --repo <owner/name> \
       --branch <branch> --sha <sha> --out summary.txt
 """
 import os
@@ -30,9 +33,9 @@ OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5-coder:7b")
 OLLAMA_API_TOKEN = os.getenv("OLLAMA_API_TOKEN", "")
 
 SKIP_DIRS = {"node_modules", "vendor", "dist", "build", ".venv", ".git"}
-MAX_LINES_PER_FILE = 2000
-MAX_HUNKS_PER_FILE = 50
-TIMEOUT_PER_FILE = int(os.getenv("OLLAMA_TIMEOUT_PER_FILE", "120"))
+MAX_LINES_PER_FILE = 4000
+MAX_HUNKS_PER_FILE = 200
+TIMEOUT_PER_FILE = int(os.getenv("OLLAMA_TIMEOUT_PER_FILE", "180"))
 TIMEOUT_OVERALL = int(os.getenv("OLLAMA_TIMEOUT_OVERALL", "600"))
 
 # ---------------- logging ----------------
@@ -61,15 +64,70 @@ def _headers() -> dict:
     return h
 
 # ---------------- diff helpers ----------------
-def trim_patch_text(text: str, max_lines: int = 1200) -> str:
-    """Keep only +/-, @@, and minimal headers; cap length."""
+DIFF_NOISE_PREFIXES = (
+    "diff --git",
+    "index ",
+    "--- ",
+    "+++ ",
+    "@@",
+)
+ADDED_NOISE_EXACT = {
+    "+ No newline at end of file",
+    "+\\ No newline at end of file",
+}
+BACKSLASH_NOISE = {"\\ No newline at end of file"}
+
+
+def trim_patch_text(text: str, max_lines: int = 2000) -> str:
+    """Keep only +/- lines, @@ headers, and minimal metadata; cap length."""
     lines: List[str] = []
     for ln in text.splitlines():
-        if ln.startswith(("+", "-", "@@", "diff --git", "index", "---", "+++")):
+        if ln.startswith(("+", "-", "@@")) or ln.startswith(DIFF_NOISE_PREFIXES):
             lines.append(ln)
     if len(lines) > max_lines:
         lines = lines[:max_lines]
     return "\n".join(lines)
+
+
+def build_added_only_from_patch_file(pf) -> str:
+    """Construct an 'added-only' text view for a PatchFile.
+    - Include true added lines (l.is_added).
+    - Exclude diff metadata noise lines.
+    - If an added block is preceded by a *context* signature/decorator line, include it too.
+    """
+    out: List[str] = []
+    hcount = 0
+    for h in pf:
+        hcount += 1
+        if hcount > MAX_HUNKS_PER_FILE:
+            logger.warning("Hunk cap reached for %s (%d > %d)", pf.path, hcount, MAX_HUNKS_PER_FILE)
+            break
+        lines = list(h)
+        for i, line in enumerate(lines):
+            val = line.value.rstrip("\n")
+            # Skip pure metadata noise lines regardless of flag
+            if val in BACKSLASH_NOISE:
+                continue
+            # Capture added code lines
+            if line.is_added:
+                if val in ADDED_NOISE_EXACT:
+                    continue
+                # If previous is context and looks like signature/decorator, include it
+                if i > 0:
+                    prev = lines[i-1]
+                    pval = prev.value.rstrip("\n")
+                    if (prev.is_context) and looks_like_sig_or_decorator(pval):
+                        out.append(pval.lstrip("+ ").strip())
+                # Add the code line (strip leading '+')
+                out.append(val[1:].rstrip() if val.startswith("+") else val)
+    return "\n".join(out)
+
+
+def looks_like_sig_or_decorator(text_line: str) -> bool:
+    s = text_line.lstrip("+ ").strip()
+    return (
+        s.startswith("def ") or s.startswith("class ") or s.startswith("@")
+    )
 
 # ---------------- ollama ----------------
 def ollama_chat(messages: List[dict], timeout: int) -> str:
@@ -108,74 +166,35 @@ def _file_language_hint(fname: str) -> str:
     else:
         return "generic"
 
-# ---------------- additions-only view ----------------
-ADDED_PREFIXES_EXCLUDE = (
-    "+++",             # file header
-    "+--",             # uncommon header
-    "+@@",             # hunk header rendered with '+'
-    "+index",          # index line
-    "+diff --git",     # diff header
-    "+ No newline at end of file",  # noise
-)
-
-NOISE_LINE_CONTENTS = (
-    "No newline at end of file",
-)
-
-
-def added_only(minimal_patch: str, max_lines: int = 3000) -> str:
-    """
-    Return '+' code lines only.
-    Do NOT treat backslash metadata ('\\ No newline at end of file') as a group boundary.
-    Just ignore that metadata line but keep real additions.
-    """
-    out = []
-    for ln in minimal_patch.splitlines():
-        # ignore metadata noise, but do NOT suppress previous real additions
-        if ln.startswith("+"):
-            if ln.strip() in ("+ No newline at end of file", "+\\ No newline at end of file"):
-                continue
-            # ignore diff headers
-            if ln.startswith(("+++", "+--", "+@@", "+index", "+diff --git")):
-                continue
-            out.append(ln[1:].rstrip())  # strip leading '+'
-        # ignore "\" noise line
-        if ln.startswith("\\ No newline at end of file"):
-            continue
-
-        if len(out) >= max_lines:
-            break
-    return "\n".join(out)
-
-
 # ---------------- per-file summarization ----------------
-def summarize_file(fname: str, minimal_patch: str) -> str:
+def summarize_file(fname: str, minimal_patch: str, pf) -> str:
     """Prompt the LLM to produce an additions-focused summary per file."""
     lang = _file_language_hint(fname)
+    added_view = build_added_only_from_patch_file(pf)
+    trimmed_view = trim_patch_text(minimal_patch)
+
     system = textwrap.dedent(
         """
         You are a senior code reviewer. Summarize ONLY the actual additions made in this file.
+
         STRICT RULES:
-        - Use the ADDED_ONLY block to locate newly ADDED functions/classes/methods.
-        - List each new function/class by exact name/signature. For each, add a 1–2 line overview
-          (prefer adjacent docstrings/comments if present).
+        - Use the ADDED_ONLY block to locate newly ADDED functions/classes/methods and other added statements.
+        - For each new function/class, list exact name/signature and provide a 1–2 line overview (prefer docstrings/comments).
+        - Also report notable added statements (e.g., new print/log statements) with a brief purpose if inferable.
         - If ADDED_ONLY is empty or has no recognizable code, return exactly: "No code additions detected."
-        - Do NOT invent content or infer behavior that is not visible in ADDED_ONLY.
+        - Do NOT invent behavior or intent that is not visible in ADDED_ONLY.
         - Keep it ≤ 10 lines, scannable bullets.
         """
     ).strip()
 
     language_tip = {
-        "python": "Look for: def name(params): and class Name:",
-        "javascript/typescript": "Look for: function name(...), const name = (...) =>, class Name",
-        "java": "Look for: returnType name(...), class Name",
-        "go": "Look for: func name(...), type Name struct",
-        "csharp": "Look for: returnType Name(...), class Name",
+        "python": "Look for: def name(params):, class Name:, and added statements like print(...) or logging.*",
+        "javascript/typescript": "Look for: function name(...), const name = (...) =>, class Name, and console.log(...)",
+        "java": "Look for: returnType name(...), class Name, and System.out.println(...)",
+        "go": "Look for: func name(...), type Name struct, and fmt.Println(...)",
+        "csharp": "Look for: returnType Name(...), class Name, and Console.WriteLine(...)",
         "generic": "If nothing recognizable exists, return the 'No code additions detected.' message.",
     }[lang]
-
-    added_view = added_only(minimal_patch)
-    trimmed_view = trim_patch_text(minimal_patch)
 
     user = (
         f"FILE: {fname}\n"
@@ -184,7 +203,7 @@ def summarize_file(fname: str, minimal_patch: str) -> str:
         "TRIMMED_DIFF (context only):\n" + trimmed_view
     )
 
-    logger.info("Summarizing file: %s (added-only len=%d)", fname, len(added_view))
+    logger.info("Summarizing file: %s (added-only len=%d)", fname, len(added_view.splitlines()))
     return ollama_chat(
         [
             {"role": "system", "content": system},
@@ -247,7 +266,7 @@ def main() -> None:
 
     per_file: List[Tuple[str, str]] = []
     for pf in patch:
-        fname = pf.path or pf.target_file
+        fname = pf.path or pf.target_file or pf.source_file or "<unknown>"
         # Skip noise dirs
         if fname:
             parts = fname.split("/")
@@ -280,14 +299,14 @@ def main() -> None:
 
         # Summarize via LLM
         try:
-            s = summarize_file(fname or "<unknown>", minimal)
+            s = summarize_file(fname, minimal, pf)
             first_line = (s or "").splitlines()[0] if s else ""
             logger.info("Summary for file %s: %s", fname, first_line.replace("\n", " ")[:150])
         except Exception as e:
             logger.exception("Error summarizing file: %s", fname)
             s = f"(Error summarizing {fname}: {e})"
 
-        per_file.append((fname or "<unknown>", s))
+        per_file.append((fname, s))
         time.sleep(0.2)  # small pacing
 
     # Overall synthesis
