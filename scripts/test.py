@@ -32,3 +32,7 @@ def add_3(a,b,c):
 
 def square_fun(x):
     return x*x
+    
+emp_ls = []
+def fun2(x,y,z):
+    return x+y+z
