@@ -50,4 +50,19 @@ print("hello test 8")
 print("finally fixed?")
 def max_fun(x,y,z):
     v = x*y*z
+
     return v
+
+
+primes = []
+
+for num in range(2, 101):   # Start from 2, since 0 and 1 are not prime
+    is_prime = True
+    for i in range(2, int(num**0.5) + 1):
+        if num % i == 0:
+            is_prime = False
+            break
+    if is_prime:
+        primes.append(num)
+
+print(primes)
