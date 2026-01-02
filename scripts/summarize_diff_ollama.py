@@ -526,7 +526,7 @@ def main():
 
     # Check Ollama early
     if not ping_ollama():
-        print(f"❌ Ollama not reachable at {OLLAMA_ENDPOINT}. "
+        print(f" Ollama not reachable at {OLLAMA_ENDPOINT}. "
               f"Run on a self-hosted runner with Ollama, or set OLLAMA_ENDPOINT to a reachable host.")
         return
 
@@ -534,7 +534,7 @@ def main():
     try:
         raw = load_or_compute_patch_bytes(args)
     except Exception as e:
-        print(f"❌ Failed to obtain patch: {e}")
+        print(f" Failed to obtain patch: {e}")
         return
 
     # Sanitize and parse
@@ -543,11 +543,11 @@ def main():
         patch = PatchSet(iter(sanitized.splitlines(keepends=True)), encoding="utf-8")
     except UnidiffParseError as e:
         logging.exception("Unidiff parse error: %s", e)
-        print(f"❌ Unidiff parse error: {e}")
+        print(f" Unidiff parse error: {e}")
         return
     except Exception as e:
         logging.exception("Unexpected parse error: %s", e)
-        print(f"❌ Unexpected parse error: {e}")
+        print(f" Unexpected parse error: {e}")
         return
 
     logging.info("Patch parsed. Files changed: %d", len(patch))
@@ -570,7 +570,7 @@ def main():
         logging.info("Overall summary generated (len=%d)", len(overall_summary))
     except Exception as e:
         logging.exception("LLM summarization failed: %s", e)
-        print(f"❌ LLM summarization failed: {e}")
+        print(f" LLM summarization failed: {e}")
         return
 
     # Save summary to unique filename
@@ -588,10 +588,10 @@ def main():
     try:
         summary_path.write_text(overall_summary, encoding="utf-8")
         logging.info("Overall summary saved to %s", str(summary_path))
-        print(f"\n✅ Overall summary saved to: {summary_path}")
+        print(f"\n Overall summary saved to: {summary_path}")
     except Exception as e:
         logging.exception("Failed to save summary: %s", e)
-        print(f"❌ Failed to save summary: {e}")
+        print(f" Failed to save summary: {e}")
 
 
 if __name__ == "__main__":
