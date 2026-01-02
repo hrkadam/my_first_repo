@@ -31,7 +31,7 @@ def square_fun(x):
     return x*x
     
 print("inside fun")
-
+print("hello new year")
 my_list = []
 def win_test(a,b):
     return a+b
