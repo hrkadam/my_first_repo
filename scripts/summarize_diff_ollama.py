@@ -35,7 +35,7 @@ OLLAMA_API_TOKEN = os.getenv("OLLAMA_API_TOKEN", "")
 SKIP_DIRS = {"node_modules", "vendor", "dist", "build", ".venv", ".git"}
 MAX_LINES_PER_FILE = 4000
 MAX_HUNKS_PER_FILE = 200
-TIMEOUT_PER_FILE = int(os.getenv("OLLAMA_TIMEOUT_PER_FILE", "180"))
+TIMEOUT_PER_FILE = int(os.getenv("OLLAMA_TIMEOUT_PER_FILE", "360"))
 TIMEOUT_OVERALL = int(os.getenv("OLLAMA_TIMEOUT_OVERALL", "600"))
 
 # ---------------- logging ----------------
