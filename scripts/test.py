@@ -69,3 +69,20 @@ def prime_finder(max_num):
 
 ret = prime_finder(50)
 print('list cnt = ',len(ret))
+
+
+prime_nums_1 = []
+def prime_finder_1(max_num):
+    for num in range(2,max_num):
+        is_prime = True
+        for i in range(2, int(num**0.5) + 1):
+            if num % i == 0:
+                is_prime = False
+                break
+        if is_prime:
+            prime_nums_1.append(num)
+    
+    return prime_nums_1
+
+ret_1 = prime_finder_1(60)
+print('prime count = ',len(ret_1))
