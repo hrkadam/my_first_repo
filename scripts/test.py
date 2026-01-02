@@ -40,6 +40,10 @@ def max_fun(x,y,z):
     v = x*y*z
     return v
 
+def add_rem_num(a,b,c,d):
+    f=a+b
+    v=c-d
+    return f*v
 
 primes = []
 
