@@ -1,9 +1,0 @@
-Repository: hrkadam/my_first_repo
-Branch: main
-Commit: ad3a5cce893e1c6406d2189a3aad67bfa562d0ab
-
-Overall
-- **scripts/test.py**: No changes made.
-
-Changes
-- scripts/test.py: No code additions detected.
