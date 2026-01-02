@@ -53,3 +53,19 @@ for num in range(2, 101):   # Start from 2, since 0 and 1 are not prime
         primes.append(num)
 
 print(primes)
+
+prime_nums = []
+def prime_finder(max_num):
+    for num in range(2,max_num):
+        is_prime = True
+        for i in range(2, int(num**0.5) + 1):
+            if num % i == 0:
+                is_prime = False
+                break
+        if is_prime:
+            prime_nums.append(num)
+    
+    return prime_nums
+
+ret = prime_finder(50)
+print('list cnt = ',len(ret))
