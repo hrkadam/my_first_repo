@@ -8,9 +8,6 @@ arr_ls = [0,0,0,0]
 print("HI")
 print("NEW")
 print("add")
-kl = [6,4,6,7]
-dec_ls = [6,4,6,7]
-dec_new = [1,8,3,5,9]
 
 ls_dec_new = [1,8,3,5,9]
 new_ls_29 = [4,7,8,2,1]
@@ -33,36 +30,12 @@ def add_3(a,b,c):
 def square_fun(x):
     return x*x
     
-def fun2(x,y,z):
-    return x+y+z
-    
-def new_test_fun():
-    print("inside fun")
+print("inside fun")
 
 my_list = []
 def win_test(a,b):
     return a+b
 
-print("hello test 5")
-print("hello test 6")
-print("hello test 7")
-print("hello test 8")
-print("finally fixed?")
 def max_fun(x,y,z):
     v = x*y*z
-
     return v
-
-
-primes = []
-
-for num in range(2, 101):   # Start from 2, since 0 and 1 are not prime
-    is_prime = True
-    for i in range(2, int(num**0.5) + 1):
-        if num % i == 0:
-            is_prime = False
-            break
-    if is_prime:
-        primes.append(num)
-
-print(primes)
