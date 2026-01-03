@@ -40,3 +40,6 @@ def tiny(a, b):
 
 hw_list = [4,5,6,3,2,1]
 print("testing end")
+
+temp_list=[9,6,3,2]
+print("finish it!!")
