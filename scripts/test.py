@@ -33,3 +33,10 @@ print("final last line")
 
 new_list = [6,2,1,0,9]
 print("really fixed?")
+
+
+def tiny(a, b):
+    return a + b
+
+hw_list = [4,5,6,3,2,1]
+print("testing end")
