@@ -30,3 +30,6 @@ print("last line")
 
 list_vals = [4,5,6,3,2,1]
 print("final last line")
+
+new_list = [6,2,1,0,9]
+print("really fixed?")
