@@ -43,3 +43,7 @@ print("testing end")
 
 temp_list=[9,6,3,2]
 print("finish it!!")
+
+def multi123(x,y):
+    t=x*y
+    return t
