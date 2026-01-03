@@ -5,3 +5,9 @@ print("Hello Python")
 def add(a,b,c):
     v=a+b+c
     return v
+
+def rem(a,b,c):
+    v=a-b-c
+    return v
+
+print("line added")    
