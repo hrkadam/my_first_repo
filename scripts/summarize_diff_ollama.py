@@ -1,18 +1,23 @@
 #!/usr/bin/env python3
 """
-Summarize a unified diff using Ollama (local/remote).
+Summarize a unified diff using Ollama (local/remote), LLM-only, no fallback.
 
-Fully rewritten, clean version that:
 - Parses unified diff with unidiff.
 - Builds an ADDED_ONLY view (robust): collects true added lines from hunks,
   filters diff noise, and includes preceding signature/decorator context when needed.
-- Prompts the LLM to enumerate *actual* additions: new functions/classes and other code changes
-  (e.g., added print statements), with 1–2 line overviews.
-- Synthesizes an overall commit summary.
+- Prompts the LLM to enumerate actual additions: new functions/classes AND added statements
+  (e.g., print/log lines), with 1–2 line overviews.
 - Writes summary.txt.
 
+Env:
+  OLLAMA_ENDPOINT               (default: http://localhost:11434)
+  OLLAMA_MODEL                  (e.g., llama3.2:latest)
+  OLLAMA_API_TOKEN              (optional)
+  OLLAMA_TIMEOUT_PER_FILE       (default: 180)
+  OLLAMA_TIMEOUT_OVERALL        (default: 600)
+
 CLI:
-  python summarize_diff_ollama_clean.py --patch diff.patch --repo <owner/name> \
+  python scripts/summarize_diff_ollama.py --patch diff.patch --repo <owner/name> \
       --branch <branch> --sha <sha> --out summary.txt
 """
 import os
@@ -35,7 +40,7 @@ OLLAMA_API_TOKEN = os.getenv("OLLAMA_API_TOKEN", "")
 SKIP_DIRS = {"node_modules", "vendor", "dist", "build", ".venv", ".git"}
 MAX_LINES_PER_FILE = 4000
 MAX_HUNKS_PER_FILE = 200
-TIMEOUT_PER_FILE = int(os.getenv("OLLAMA_TIMEOUT_PER_FILE", "360"))
+TIMEOUT_PER_FILE = int(os.getenv("OLLAMA_TIMEOUT_PER_FILE", "180"))
 TIMEOUT_OVERALL = int(os.getenv("OLLAMA_TIMEOUT_OVERALL", "600"))
 
 # ---------------- logging ----------------
@@ -77,7 +82,6 @@ ADDED_NOISE_EXACT = {
 }
 BACKSLASH_NOISE = {"\\ No newline at end of file"}
 
-
 def trim_patch_text(text: str, max_lines: int = 2000) -> str:
     """Keep only +/- lines, @@ headers, and minimal metadata; cap length."""
     lines: List[str] = []
@@ -88,6 +92,9 @@ def trim_patch_text(text: str, max_lines: int = 2000) -> str:
         lines = lines[:max_lines]
     return "\n".join(lines)
 
+def looks_like_sig_or_decorator(text_line: str) -> bool:
+    s = text_line.lstrip("+ ").strip()
+    return s.startswith("def ") or s.startswith("class ") or s.startswith("@")
 
 def build_added_only_from_patch_file(pf) -> str:
     """Construct an 'added-only' text view for a PatchFile.
@@ -121,13 +128,6 @@ def build_added_only_from_patch_file(pf) -> str:
                 # Add the code line (strip leading '+')
                 out.append(val[1:].rstrip() if val.startswith("+") else val)
     return "\n".join(out)
-
-
-def looks_like_sig_or_decorator(text_line: str) -> bool:
-    s = text_line.lstrip("+ ").strip()
-    return (
-        s.startswith("def ") or s.startswith("class ") or s.startswith("@")
-    )
 
 # ---------------- ollama ----------------
 def ollama_chat(messages: List[dict], timeout: int) -> str:
@@ -173,20 +173,21 @@ def summarize_file(fname: str, minimal_patch: str, pf) -> str:
     added_view = build_added_only_from_patch_file(pf)
     trimmed_view = trim_patch_text(minimal_patch)
 
-    
-    system = textwrap.dedent("""
-    You are a senior code reviewer. Summarize ONLY the actual additions made in this file.
+    # ✅ Code-block fix: wrap ADDED_ONLY as python and the diff as diff
+    system = textwrap.dedent(
+        """
+        You are a senior code reviewer. Summarize ONLY the actual additions made in this file.
 
-    Rules:
-    - If ADDED_ONLY is empty, return exactly: "No code additions detected."
-    - Otherwise, summarize ALL added code:
-    • New functions/classes (name + 1–2 line purpose)
-    • Added statements such as print(), logging, returns, expressions, conditionals, variable updates, etc.
-    - Each bullet must reflect only what is visible in ADDED_ONLY.
-    - Do NOT invent behavior that is not present in the diff.
-    - Keep it ≤ 10 lines, use short bullets.
-    """).strip()
-
+        Rules:
+        - If ADDED_ONLY is empty, return exactly: "No code additions detected."
+        - Otherwise, summarize ALL added code:
+           • New functions/classes (name + 1–2 line purpose)
+           • Added statements such as print(), logging, assignments, returns, expressions, conditionals, imports, etc.
+        - Each bullet must reflect only what is visible in ADDED_ONLY.
+        - Do NOT invent behavior or intent that is not present in the diff.
+        - Keep it ≤ 10 lines, use short bullets.
+        """
+    ).strip()
 
     language_tip = {
         "python": "Look for: def name(params):, class Name:, and added statements like print(...) or logging.*",
@@ -200,8 +201,8 @@ def summarize_file(fname: str, minimal_patch: str, pf) -> str:
     user = (
         f"FILE: {fname}\n"
         f"LANGUAGE_HINT: {lang} — {language_tip}\n\n"
-        "ADDED_ONLY:\n" + added_view + "\n\n" +
-        "TRIMMED_DIFF (context only):\n" + trimmed_view
+        "ADDED_ONLY (code):\n```python\n" + added_view + "\n```\n\n" +
+        "TRIMMED_DIFF (context only):\n```diff\n" + trimmed_view + "\n```"
     )
 
     logger.info("Summarizing file: %s (added-only len=%d)", fname, len(added_view.splitlines()))
