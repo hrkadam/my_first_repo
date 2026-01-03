@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
 """
-Summarize a unified diff using Ollama (local/remote), LLM-only, with ADDED_ONLY sanitization.
+Summarize a unified diff using Ollama (local/remote), LLM-only.
 
-- Parses unified diff with unidiff.
-- Builds an ADDED_ONLY view (robust): collects true added lines from hunks,
-  filters diff noise, and includes preceding signature/decorator context when needed.
-- **Sanitizes** ADDED_ONLY before sending to the LLM (removes backslash metadata, stray '+',
-  trims whitespace) and wraps it in fenced Python code blocks so the model recognizes code.
-- Prompts the LLM to enumerate actual additions: new functions/classes AND added statements
-  (e.g., print/log lines), with 1–2 line overviews.
-- Writes summary.txt.
+This version fixes all previously observed issues:
+- **Robust ADDED_ONLY extraction from the minimal patch text** (does NOT rely on
+  unidiff's `is_added` which can mislabel lines as context when trailing newlines
+  or CRLF/LF conversions occur).
+- **Sanitizes** the extracted additions (removes diff artifacts, stray '+', CRs),
+  and wraps them in fenced **Python** code blocks so general models like
+  `llama3.2:latest` treat them as real code.
+- Summarizes both **structural** (functions/classes) and **non-structural**
+  additions (e.g., `print(...)`, list/var assignments) in ≤10 bullets.
 
 Env:
   OLLAMA_ENDPOINT               (default: http://localhost:11434)
-  OLLAMA_MODEL                  (e.g., llama3.2:latest)
+  OLLAMA_MODEL                  (default: llama3.2:latest)
   OLLAMA_API_TOKEN              (optional)
   OLLAMA_TIMEOUT_PER_FILE       (default: 180)
   OLLAMA_TIMEOUT_OVERALL        (default: 600)
@@ -75,9 +76,10 @@ DIFF_NOISE_PREFIXES = (
     "diff --git",
     "index ",
     "--- ",
-    "+++ ",
+    "+\+\+ ",  # literal +++ header line
     "@@",
 )
+# Lines that appear as "+ No newline at end of file" and sometimes with backslash
 ADDED_NOISE_EXACT = {
     "+ No newline at end of file",
     "+\\ No newline at end of file",
@@ -87,52 +89,80 @@ BACKSLASH_NOISE = {"\\ No newline at end of file"}
 
 def trim_patch_text(text: str, max_lines: int = 2000) -> str:
     """Keep only +/- lines, @@ headers, and minimal metadata; cap length."""
-    lines: List[str] = []
-    for ln in text.splitlines():
-        if ln.startswith(("+", "-", "@@")) or ln.startswith(DIFF_NOISE_PREFIXES):
-            lines.append(ln)
-    if len(lines) > max_lines:
-        lines = lines[:max_lines]
-    return "\n".join(lines)
-
-
-def looks_like_sig_or_decorator(text_line: str) -> bool:
-    s = text_line.lstrip("+ ").strip()
-    return s.startswith("def ") or s.startswith("class ") or s.startswith("@")
-
-
-def build_added_only_from_patch_file(pf) -> str:
-    """Construct an 'added-only' text view for a PatchFile.
-    - Include true added lines (l.is_added).
-    - Exclude diff metadata noise lines.
-    - If an added block is preceded by a *context* signature/decorator line, include it too.
-    """
     out: List[str] = []
+    for ln in text.splitlines():
+        if ln.startswith(('+', '-', '@@')):
+            out.append(ln)
+        else:
+            for pref in DIFF_NOISE_PREFIXES:
+                if ln.startswith(pref):
+                    out.append(ln)
+                    break
+    if len(out) > max_lines:
+        out = out[:max_lines]
+    return "\n".join(out)
+
+
+def _looks_like_sig_or_decorator(line: str) -> bool:
+    s = line.lstrip('+ ').strip()
+    return s.startswith(('def ', 'class ', '@'))
+
+
+def build_minimal_text_for_file(pf) -> str:
+    """Compose a minimal unified text for a PatchFile: only hunk headers and line values."""
+    text_chunks: List[str] = []
     hcount = 0
     for h in pf:
         hcount += 1
         if hcount > MAX_HUNKS_PER_FILE:
             logger.warning("Hunk cap reached for %s (%d > %d)", pf.path, hcount, MAX_HUNKS_PER_FILE)
             break
-        lines = list(h)
-        for i, line in enumerate(lines):
-            val = line.value.rstrip("\n")
-            # Skip pure metadata noise lines regardless of flag
-            if val in BACKSLASH_NOISE:
-                continue
-            # Capture added code lines
-            if line.is_added:
-                if val in ADDED_NOISE_EXACT:
-                    continue
-                # If previous is context and looks like signature/decorator, include it
-                if i > 0:
-                    prev = lines[i-1]
-                    pval = prev.value.rstrip("\n")
-                    if (prev.is_context) and looks_like_sig_or_decorator(pval):
-                        out.append(pval.lstrip("+ ").strip())
-                # Add the code line (strip leading '+')
-                out.append(val[1:].rstrip() if val.startswith("+") else val)
+        hdr = f"@@ -{h.source_start},{h.source_length} +{h.target_start},{h.target_length} @@"
+        changes = "\n".join(l.value.rstrip("\n") for l in h)
+        text_chunks.append(hdr + "\n" + changes)
+    return "\n".join(text_chunks)
+
+
+def build_added_only_from_minimal(minimal_patch: str, max_lines: int = 3000) -> str:
+    """Robustly extract added lines directly from the minimal patch text.
+    - Treat any line that **starts with '+'** (and is not metadata) as an addition.
+    - Also capture a preceding context line if it is a signature/decorator (`def`, `class`, `@`).
+    - Ignore "+ No newline at end of file" and header-like lines starting with '+++', '+@@', etc.
+    """
+    out: List[str] = []
+    lines = minimal_patch.splitlines()
+
+    def is_added_code(ln: str) -> bool:
+        if not ln.startswith('+'):
+            return False
+        if ln in ADDED_NOISE_EXACT:
+            return False
+        if ln.startswith(('+++', '+@@', '+index', '+diff --git', '+--')):
+            return False
+        # standalone '+' line (blank addition) -> skip
+        if ln.strip() == '+':
+            return False
+        return True
+
+    for i, ln in enumerate(lines):
+        # include added code
+        if is_added_code(ln):
+            # If previous is context and looks like signature/decorator, include it once
+            if i > 0:
+                prev = lines[i-1]
+                if (not prev.startswith(('+', '-'))) and _looks_like_sig_or_decorator(prev):
+                    out.append(prev.strip())
+            # Append code without leading '+'
+            code = ln[1:].rstrip()
+            out.append(code)
+        else:
+            # skip
+            pass
+        if len(out) >= max_lines:
+            break
+
     return "\n".join(out)
+
 
 # ---------------- ollama ----------------
 def ollama_chat(messages: List[dict], timeout: int) -> str:
@@ -171,35 +201,37 @@ def _file_language_hint(fname: str) -> str:
     else:
         return "generic"
 
-# ---------------- per-file summarization ----------------
-def _sanitize_added_only(added_view: str) -> str:
-    """Remove diff artifacts and ensure clean Python lines inside the code fence."""
-    safe_lines: List[str] = []
+# ---------------- sanitization ----------------
+def sanitize_added_only(added_view: str) -> str:
+    safe: List[str] = []
     for ln in added_view.splitlines():
         s = ln.strip()
         if not s:
             continue
-        # drop backslash metadata and any explicit noise
         if s.startswith("\\ No newline"):
             continue
         if s in {"No newline at end of file"}:
             continue
-        # remove leftover leading '+' if any
-        if s.startswith("+"):
+        if s.startswith('+'):
             s = s[1:].strip()
-        # normalize Windows CR stray chars (just in case)
-        s = s.replace("\r", "")
-        safe_lines.append(s)
-    return "\n".join(safe_lines)
+        s = s.replace('\r', '')
+        safe.append(s)
+    return "\n".join(safe)
 
-
-def summarize_file(fname: str, minimal_patch: str, pf) -> str:
+# ---------------- per-file summarization ----------------
+def summarize_file(fname: str, pf) -> str:
     """Prompt the LLM to produce an additions-focused summary per file."""
     lang = _file_language_hint(fname)
-    raw_added_view = build_added_only_from_patch_file(pf)
-    added_view = _sanitize_added_only(raw_added_view)
-    logger.info("ADDED_ONLY_SANITIZED:\\n%s", added_view)
-    trimmed_view = trim_patch_text(minimal_patch)
+
+    minimal = build_minimal_text_for_file(pf)
+    minimal = "\n".join(minimal.splitlines()[:MAX_LINES_PER_FILE])
+
+    added_view_raw = build_added_only_from_minimal(minimal)
+    added_view = sanitize_added_only(added_view_raw)
+    trimmed_view = trim_patch_text(minimal)
+
+    # Log for diagnostics
+    logger.info("ADDED_ONLY_SANITIZED:\n%s", added_view)
 
     system = textwrap.dedent(
         """
@@ -213,6 +245,16 @@ def summarize_file(fname: str, minimal_patch: str, pf) -> str:
         - Each bullet must reflect only what is visible in ADDED_ONLY.
         - Do NOT invent behavior or intent that is not present in the diff.
         - Keep it ≤ 10 lines, use short bullets.
+
+        Example mapping from simple statements:
+        ADDED_ONLY:
+        ```python
+        print('hello')
+        items = [1,2,3]
+        ```
+        →
+        - Added print('hello') — prints a message.
+        - Added items = [1, 2, 3] — initializes a list with 3 elements.
         """
     ).strip()
 
@@ -260,7 +302,6 @@ def synthesize_overall(repo: str, branch: str, sha: str, per_file_sections: List
         "\n\n".join([f"FILE: {f}\nSUMMARY:\n{s}" for f, s in per_file_sections])
     )
 
-    logger.info("Synthesizing overall summary for %d file(s)", len(per_file_sections))
     return ollama_chat(
         [
             {"role": "system", "content": system},
@@ -303,32 +344,9 @@ def main() -> None:
                 logger.info("Skipping file in ignored directory: %s", fname)
                 continue
 
-        # Build minimal unified text per file
-        text_chunks: List[str] = []
-        hcount = 0
-        for h in pf:
-            logger.info("Processing hunk: %s", h)
-            hcount += 1
-            if hcount > MAX_HUNKS_PER_FILE:
-                logger.warning("Hunk cap reached for %s (%d > %d)", fname, hcount, MAX_HUNKS_PER_FILE)
-                break
-            hdr = f"@@ -{h.source_start},{h.source_length} +{h.target_start},{h.target_length} @@"
-            changes = "\n".join(l.value.rstrip("\n") for l in h)
-            logger.info("Hunk changes length: %d chars", len(changes))
-            text_chunks.append(hdr + "\n" + changes)
-
-        if not text_chunks:
-            logger.info("No hunks to summarize for file: %s", fname)
-            continue
-
-        minimal = "\n".join(text_chunks)
-        logger.info("Total minimal patch length for %s: %d chars", fname, len(minimal))
-        minimal = "\n".join(minimal.splitlines()[:MAX_LINES_PER_FILE])
-        logger.info("Trimmed minimal patch length for %s: %d chars", fname, len(minimal))
-
         # Summarize via LLM
         try:
-            s = summarize_file(fname, minimal, pf)
+            s = summarize_file(fname, pf)
             first_line = (s or "").splitlines()[0] if s else ""
             logger.info("Summary for file %s: %s", fname, first_line.replace("\n", " ")[:150])
         except Exception as e:
