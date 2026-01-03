@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """
-Summarize a unified diff using Ollama (local/remote), LLM-only, no fallback.
+Summarize a unified diff using Ollama (local/remote), LLM-only, with ADDED_ONLY sanitization.
 
 - Parses unified diff with unidiff.
 - Builds an ADDED_ONLY view (robust): collects true added lines from hunks,
   filters diff noise, and includes preceding signature/decorator context when needed.
+- **Sanitizes** ADDED_ONLY before sending to the LLM (removes backslash metadata, stray '+',
+  trims whitespace) and wraps it in fenced Python code blocks so the model recognizes code.
 - Prompts the LLM to enumerate actual additions: new functions/classes AND added statements
   (e.g., print/log lines), with 1–2 line overviews.
 - Writes summary.txt.
@@ -82,6 +84,7 @@ ADDED_NOISE_EXACT = {
 }
 BACKSLASH_NOISE = {"\\ No newline at end of file"}
 
+
 def trim_patch_text(text: str, max_lines: int = 2000) -> str:
     """Keep only +/- lines, @@ headers, and minimal metadata; cap length."""
     lines: List[str] = []
@@ -92,9 +95,11 @@ def trim_patch_text(text: str, max_lines: int = 2000) -> str:
         lines = lines[:max_lines]
     return "\n".join(lines)
 
+
 def looks_like_sig_or_decorator(text_line: str) -> bool:
     s = text_line.lstrip("+ ").strip()
     return s.startswith("def ") or s.startswith("class ") or s.startswith("@")
+
 
 def build_added_only_from_patch_file(pf) -> str:
     """Construct an 'added-only' text view for a PatchFile.
@@ -167,13 +172,34 @@ def _file_language_hint(fname: str) -> str:
         return "generic"
 
 # ---------------- per-file summarization ----------------
+def _sanitize_added_only(added_view: str) -> str:
+    """Remove diff artifacts and ensure clean Python lines inside the code fence."""
+    safe_lines: List[str] = []
+    for ln in added_view.splitlines():
+        s = ln.strip()
+        if not s:
+            continue
+        # drop backslash metadata and any explicit noise
+        if s.startswith("\\ No newline"):
+            continue
+        if s in {"No newline at end of file"}:
+            continue
+        # remove leftover leading '+' if any
+        if s.startswith("+"):
+            s = s[1:].strip()
+        # normalize Windows CR stray chars (just in case)
+        s = s.replace("\r", "")
+        safe_lines.append(s)
+    return "\n".join(safe_lines)
+
+
 def summarize_file(fname: str, minimal_patch: str, pf) -> str:
     """Prompt the LLM to produce an additions-focused summary per file."""
     lang = _file_language_hint(fname)
-    added_view = build_added_only_from_patch_file(pf)
+    raw_added_view = build_added_only_from_patch_file(pf)
+    added_view = _sanitize_added_only(raw_added_view)
     trimmed_view = trim_patch_text(minimal_patch)
 
-    # ✅ Code-block fix: wrap ADDED_ONLY as python and the diff as diff
     system = textwrap.dedent(
         """
         You are a senior code reviewer. Summarize ONLY the actual additions made in this file.
