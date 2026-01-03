@@ -198,6 +198,7 @@ def summarize_file(fname: str, minimal_patch: str, pf) -> str:
     lang = _file_language_hint(fname)
     raw_added_view = build_added_only_from_patch_file(pf)
     added_view = _sanitize_added_only(raw_added_view)
+    logger.info("ADDED_ONLY_SANITIZED:\\n%s", added_view)
     trimmed_view = trim_patch_text(minimal_patch)
 
     system = textwrap.dedent(
