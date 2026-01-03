@@ -17,3 +17,7 @@ def mul(a,b,c):
     return v
 
 print("multiplication function")
+
+print("list added")
+x=[4,5,6,3,2,1]
+print(len(x))
