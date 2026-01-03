@@ -21,3 +21,6 @@ print("multiplication function")
 print("list added")
 x=[4,5,6,3,2,1]
 print(len(x))
+
+def add_two(a,b):
+    return a+b
