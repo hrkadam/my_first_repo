@@ -49,4 +49,10 @@ def multi123(x,y):
     return t
 
 print("new date")
-ls_new=[1,2,4]    
+ls_new=[1,2,4]
+
+def win_add(x,y,z):
+    print("making addition")
+    return x+y+z
+
+print("End of script")
