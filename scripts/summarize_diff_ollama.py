@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 """
-Summarize a unified diff using Ollama (local/remote), LLM-only.
+Summarize a unified diff using Ollama (local/remote), LLM-only — FINAL PATCHED VERSION.
 
-Patched version that:
 - Builds MINIMAL patch text with prefixes preserved ('+', '-', ' ') so additions are detectable.
 - Extracts ADDED_ONLY directly from the minimal text (not from unidiff flags).
-- Sanitizes ADDED_ONLY and wraps it in fenced Python code blocks for reliable handling by general models (e.g., llama3.2:latest).
+- Sanitizes ADDED_ONLY and wraps it in fenced Python code blocks so general models (e.g., llama3.2:latest) reliably treat it as code.
+- Updated prompt explicitly instructs the model to ANALYZE the fenced code and to treat ALL lines in ADDED_ONLY as meaningful additions (including simple statements).
 - Summarizes structural (functions/classes) and non-structural additions (print/log/assignments) in ≤10 bullets.
+
+CLI:
+  python scripts/summarize_diff_ollama_final.py --patch diff.patch --repo <owner/name> \
+      --branch <branch> --sha <sha> --out summary.txt
 """
 import os
 import sys
@@ -213,27 +217,30 @@ def summarize_file(fname: str, pf) -> str:
 
     logger.info("ADDED_ONLY_SANITIZED:\n%s", added_view)
 
+    # ✅ UPDATED PROMPT — force the model to analyze the fenced code and treat all lines as additions
     system = textwrap.dedent(
         """
         You are a senior code reviewer. Summarize ONLY the actual additions made in this file.
 
         Rules:
-        - If ADDED_ONLY is empty, return exactly: "No code additions detected."
-        - Otherwise, summarize ALL added code:
-           • New functions/classes (name + 1–2 line purpose)
-           • Added statements such as print(), logging, assignments, returns, expressions, conditionals, imports, etc.
-        - Each bullet must reflect only what is visible in ADDED_ONLY.
-        - Do NOT invent behavior or intent that is not present in the diff.
-        - Keep it ≤ 10 lines, use short bullets.
+        - ADDED_ONLY contains pure code inside a fenced ```python``` block. You MUST analyze the code in this block.
+        - If ADDED_ONLY is not empty, you MUST treat every line inside it as a real code addition.
+        - Summarize ALL added code, including:
+          • Functions/classes (name + 1–2 line purpose)
+          • Simple statements (e.g., print(), logging, assignments, list/var initialization, returns, expressions, imports)
+        - Do NOT ignore simple statements. They ARE meaningful additions.
+        - Reflect only what is visible in ADDED_ONLY; no speculation.
+        - Keep output ≤ 10 lines in short, scannable bullets.
+        - Only if ADDED_ONLY is truly empty, return exactly: "No code additions detected."
         """
     ).strip()
 
     language_tip = {
-        "python": "Look for: def name(params):, class Name:, and added statements like print(...) or logging.*",
-        "javascript/typescript": "Look for: function name(...), const name = (...) =>, class Name, and console.log(...)",
-        "java": "Look for: returnType name(...), class Name, and System.out.println(...)",
-        "go": "Look for: func name(...), type Name struct, and fmt.Println(...)",
-        "csharp": "Look for: returnType Name(...), class Name, and Console.WriteLine(...)",
+        "python": "Focus on: def name(params):, class Name:, and added statements like print(...), assignments, list/var init, logging.*",
+        "javascript/typescript": "Focus on: function name(...), const name = (...) =>, class Name, console.log(...)",
+        "java": "Focus on: returnType name(...), class Name, System.out.println(...)",
+        "go": "Focus on: func name(...), type Name struct, fmt.Println(...)",
+        "csharp": "Focus on: returnType Name(...), class Name, Console.WriteLine(...)",
         "generic": "If nothing recognizable exists, return the 'No code additions detected.' message.",
     }[lang]
 
