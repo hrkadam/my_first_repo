@@ -47,3 +47,6 @@ print("finish it!!")
 def multi123(x,y):
     t=x*y
     return t
+
+print("new date")
+ls_new=[1,2,4]    
