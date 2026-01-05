@@ -62,3 +62,9 @@ def rem_fuc(x,y,z):
     return x*y*z
 
 print("Finally script ending")
+
+def mul_three(x,y,z):
+    print("making multiplication")
+    return x*y*z
+
+print("line 70 end")
