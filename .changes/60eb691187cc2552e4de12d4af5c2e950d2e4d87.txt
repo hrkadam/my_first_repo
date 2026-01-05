@@ -1,0 +1,16 @@
+Repository: hrkadam/my_first_repo
+Branch: main
+Commit: 60eb691187cc2552e4de12d4af5c2e950d2e4d87
+
+Overall
+Here is a synthesized commit summary:
+
+**Multiplication Functionality Added**
+
+* `test.py`:
+	+ Introduced `mul_next` function for multiplication
+	+ Added print statements for debugging and clarity
+	+ Removed redundant print statement
+
+Changes
+- scripts/test.py: * Added function `mul_next` with purpose of performing multiplication:
