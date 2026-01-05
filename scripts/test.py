@@ -74,3 +74,18 @@ def mul_next(x,y,z):
     return x*y*z
 
 print("line 80 end")
+
+prime_nums = []
+def prime_finder(max_num):
+    for num in range(2,max_num):
+        is_prime = True
+        for i in range(2, int(num**0.5) + 1):
+            if num % i == 0:
+                is_prime = False
+                break
+        if is_prime:
+            prime_nums.append(num)
+    return prime_nums
+
+prime_nums_cnt = prime_finder(50)
+print('Total prime numbers count = ',len(prime_nums_cnt))
