@@ -1,0 +1,18 @@
+Repository: hrkadam/my_first_repo
+Branch: main
+Commit: 98150fa119dcbbd5396b0e4ac1516b9134ff160d
+
+Overall
+Here's a synthesized commit summary:
+
+**Refactored Prime Number Finder**
+
+* Added function `prime_finder(max_num)` to find prime numbers up to `max_num` in `scripts/test.py`.
+* Key features:
+	+ Returns a list of prime numbers
+	+ Initializes variable `prime_nums` as an empty list
+	+ Stores count of total prime numbers found by `prime_finder(50)`
+	+ Prints total count of prime numbers using `print()`
+
+Changes
+- scripts/test.py: * Added function `prime_finder(max_num)` to find prime numbers up to `max_num`.
