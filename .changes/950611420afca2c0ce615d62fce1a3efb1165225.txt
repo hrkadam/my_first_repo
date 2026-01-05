@@ -1,9 +1,0 @@
-Repository: hrkadam/my_first_repo
-Branch: main
-Commit: 950611420afca2c0ce615d62fce1a3efb1165225
-
-Overall
-- **scripts/test.py**: Fixed a read timeout issue by increasing the timeout duration.
-
-Changes
-- scripts/test.py: (Error summarizing scripts/test.py: HTTPConnectionPool(host='127.0.0.1', port=11434): Read timed out. (read timeout=120))
