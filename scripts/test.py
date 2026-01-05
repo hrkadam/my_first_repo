@@ -56,3 +56,9 @@ def win_add(x,y,z):
     return x+y+z
 
 print("End of script")
+
+def rem_fuc(x,y,z):
+    print("making multiplication")
+    return x*y*z
+
+print("Finally script ending")
