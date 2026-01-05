@@ -163,5 +163,4 @@ def build_added_only_from_minimal(minimal_patch: str, max_lines: int = 3000) -> 
         if len(out) >= max_lines:
             break
 
-    return "
-".join(out)
+    return "".join(out)
