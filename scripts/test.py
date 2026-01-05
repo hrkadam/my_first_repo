@@ -68,3 +68,9 @@ def mul_three(x,y,z):
     return x*y*z
 
 print("line 70 end")
+
+def mul_next(x,y,z):
+    print("making multiplication")
+    return x*y*z
+
+print("line 80 end")
