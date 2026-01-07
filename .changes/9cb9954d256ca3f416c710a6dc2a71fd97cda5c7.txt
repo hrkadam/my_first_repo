@@ -1,0 +1,16 @@
+Repository: hrkadam/my_first_repo
+Branch: main
+Commit: 9cb9954d256ca3f416c710a6dc2a71fd97cda5c7
+
+Overall
+Here's a synthesized commit summary:
+
+**Improved testing functionality**
+
+* `test.py`: 
+  • Added function `check_even_odd` to determine if a number is even or odd
+  • Implemented print statement to display prime number count
+  • Introduced logging statement for `check_even_odd` result with specific format
+
+Changes
+- scripts/test.py: * Added function `check_even_odd` to determine if a number is even or odd.
