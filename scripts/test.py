@@ -89,3 +89,13 @@ def prime_finder(max_num):
 
 prime_nums_cnt = prime_finder(50)
 print('Total prime numbers count = ',len(prime_nums_cnt))
+
+
+def check_even_odd(num):
+    if num % 2 == 0:
+        return "Even"
+    else:
+        return "Odd"
+
+# Example
+print(check_even_odd(7))
